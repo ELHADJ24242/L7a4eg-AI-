@@ -1,0 +1,8 @@
+{
+  "name": "Remix L7a4eg AI | لحاذگ",
+  "description": "مساعد ذكاء اصطناعي موريتاني شامل - محادثة ذكية، حسانية أصيلة، ترجمة فرنسية وعربية، قاموس مجتمعي، وصناعة محتوى محلي",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
