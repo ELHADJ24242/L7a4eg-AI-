@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import {
   MessageSquare,
   Plus,
@@ -10,9 +10,15 @@ import {
   Clock,
   Compass,
   AlertTriangle,
+  Download,
+  Upload,
 } from 'lucide-react';
 import { ChatSession } from '../types';
-import { formatSessionTime } from '../services/chatHistoryStorage';
+import {
+  formatSessionTime,
+  exportSessionsData,
+  importSessionsData,
+} from '../services/chatHistoryStorage';
 
 interface ChatHistorySidebarProps {
   isOpen: boolean;
@@ -24,6 +30,7 @@ interface ChatHistorySidebarProps {
   onDeleteSession: (sessionId: string) => void;
   onRenameSession: (sessionId: string, newTitle: string) => void;
   onClearAllSessions: () => void;
+  onImportSessions?: () => void;
 }
 
 export const ChatHistorySidebar: React.FC<ChatHistorySidebarProps> = ({
@@ -36,12 +43,57 @@ export const ChatHistorySidebar: React.FC<ChatHistorySidebarProps> = ({
   onDeleteSession,
   onRenameSession,
   onClearAllSessions,
+  onImportSessions,
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editTitle, setEditTitle] = useState('');
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [showClearAllConfirm, setShowClearAllConfirm] = useState(false);
+  const [importStatus, setImportStatus] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const handleExport = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    try {
+      const data = exportSessionsData();
+      const blob = new Blob([data], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `l7a4eg-chat-history-${new Date().toISOString().split('T')[0]}.json`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      setImportStatus('تم تصدير نسخة احتياطية بنجاح 📥');
+      setTimeout(() => setImportStatus(null), 3000);
+    } catch (err) {
+      console.error('Export failed:', err);
+    }
+  };
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const content = event.target?.result as string;
+      if (content) {
+        const result = importSessionsData(content);
+        if (result.success) {
+          setImportStatus(`تم استيراد ${result.count} محادثة بنجاح ✨`);
+          if (onImportSessions) onImportSessions();
+        } else {
+          setImportStatus('فشل قراءة الملف، يرجى اختيار ملف JSON صالح');
+        }
+        setTimeout(() => setImportStatus(null), 3500);
+      }
+    };
+    reader.readAsText(file);
+    e.target.value = '';
+  };
 
   const filteredSessions = sessions.filter((s) => {
     if (!searchQuery.trim()) return true;
@@ -338,8 +390,15 @@ export const ChatHistorySidebar: React.FC<ChatHistorySidebarProps> = ({
           )}
         </div>
 
-        {/* Footer: Clear All or Info */}
-        <div className="p-3 border-t border-[#E5DAC4] dark:border-slate-800 bg-[#F4EDE0] dark:bg-slate-950/70 shrink-0">
+        {/* Import/Export Status Toast */}
+        {importStatus && (
+          <div className="mx-3 my-1.5 p-2 rounded-xl bg-sky-100 dark:bg-sky-950/80 border border-sky-300 dark:border-sky-700 text-sky-800 dark:text-sky-200 text-xs font-bold text-center animate-fadeIn shrink-0">
+            {importStatus}
+          </div>
+        )}
+
+        {/* Footer: Backup actions & Clear All */}
+        <div className="p-3 border-t border-[#E5DAC4] dark:border-slate-800 bg-[#F4EDE0] dark:bg-slate-950/70 shrink-0 space-y-2">
           {showClearAllConfirm ? (
             <div className="p-2 rounded-xl bg-rose-50 dark:bg-rose-950/40 border border-rose-300 dark:border-rose-500/40 text-center space-y-2">
               <p className="text-xs text-rose-700 dark:text-rose-300 font-bold">
@@ -366,19 +425,56 @@ export const ChatHistorySidebar: React.FC<ChatHistorySidebarProps> = ({
               </div>
             </div>
           ) : (
-            <div className="flex items-center justify-between">
-              <span className="text-[11px] text-slate-500 dark:text-slate-400">حفظ تلقائي مستمر 🇲🇷</span>
-              {sessions.length > 0 && (
-                <button
-                  type="button"
-                  onClick={() => setShowClearAllConfirm(true)}
-                  className="text-[11px] text-slate-500 dark:text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 flex items-center gap-1 transition-colors cursor-pointer"
-                >
-                  <Trash2 className="w-3 h-3" />
-                  <span>مسح السجل</span>
-                </button>
-              )}
-            </div>
+            <>
+              {/* Backup & Restore Bar */}
+              <div className="flex items-center justify-between text-xs pt-0.5">
+                <div className="flex items-center gap-2">
+                  <input
+                    type="file"
+                    ref={fileInputRef}
+                    onChange={handleFileChange}
+                    accept=".json,application/json"
+                    className="hidden"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => fileInputRef.current?.click()}
+                    className="flex items-center gap-1 px-2 py-1 rounded-lg bg-white dark:bg-slate-800 border border-[#E0D4BE] dark:border-slate-750 text-slate-700 dark:text-slate-300 hover:text-sky-600 text-[11px] font-semibold transition-colors cursor-pointer"
+                    title="استيراد محادثات سابقة من ملف JSON"
+                  >
+                    <Upload className="w-3 h-3 text-sky-600" />
+                    <span>استيراد</span>
+                  </button>
+
+                  {sessions.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={handleExport}
+                      className="flex items-center gap-1 px-2 py-1 rounded-lg bg-white dark:bg-slate-800 border border-[#E0D4BE] dark:border-slate-750 text-slate-700 dark:text-slate-300 hover:text-emerald-600 text-[11px] font-semibold transition-colors cursor-pointer"
+                      title="تصدير وحفظ نسخة احتياطية من المحادثات (JSON)"
+                    >
+                      <Download className="w-3 h-3 text-emerald-600" />
+                      <span>تصدير</span>
+                    </button>
+                  )}
+                </div>
+
+                {sessions.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => setShowClearAllConfirm(true)}
+                    className="text-[11px] text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 flex items-center gap-1 transition-colors cursor-pointer"
+                    title="مسح كل المحادثات السابقة"
+                  >
+                    <Trash2 className="w-3 h-3" />
+                    <span>مسح الكل</span>
+                  </button>
+                )}
+              </div>
+              <div className="text-[10px] text-slate-400 dark:text-slate-500 text-center">
+                حفظ محلي آمن في متصفحك 🇲🇷
+              </div>
+            </>
           )}
         </div>
       </aside>

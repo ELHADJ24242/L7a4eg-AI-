@@ -2,6 +2,7 @@ import React from 'react';
 import { Languages, ShieldCheck, Sun, Moon } from 'lucide-react';
 import { LanguageInfo } from '../types';
 import { ThemeMode } from '../services/theme';
+import { PWAInstallButton } from './PWAInstallButton';
 
 interface HeaderProps {
   currentLanguage: LanguageInfo;
@@ -51,6 +52,8 @@ export const Header: React.FC<HeaderProps> = ({
 
         {/* Action Controls */}
         <div className="flex items-center gap-1.5 sm:gap-2">
+          {/* In-App PWA Install Prompt Button */}
+          <PWAInstallButton />
           {/* Light / Dark Mode Toggle (الرمال الذهبية vs الليل الصحراوي) */}
           <button
             onClick={onToggleTheme}

@@ -395,6 +395,23 @@ export const ChatView: React.FC<ChatViewProps> = ({ currentLanguage, onSelectLan
       if (target.personaMode) {
         setPersonaMode(target.personaMode);
       }
+      if (target.languageCode && onSelectLanguage) {
+        onSelectLanguage(target.languageCode);
+      }
+    }
+  };
+
+  const handleReloadSessions = () => {
+    const loaded = loadSessions();
+    setSessions(loaded);
+    const active = getActiveSessionId();
+    const curr = (active && loaded.find((s) => s.id === active)) || (loaded.length > 0 ? loaded[0] : null);
+    if (curr) {
+      setCurrentSessionId(curr.id);
+      setActiveSessionId(curr.id);
+      setMessages(curr.messages);
+      if (curr.personaMode) setPersonaMode(curr.personaMode);
+      if (curr.languageCode && onSelectLanguage) onSelectLanguage(curr.languageCode);
     }
   };
 
@@ -1573,6 +1590,7 @@ export const ChatView: React.FC<ChatViewProps> = ({ currentLanguage, onSelectLan
         onDeleteSession={handleDeleteSession}
         onRenameSession={handleRenameSession}
         onClearAllSessions={handleClearAllSessions}
+        onImportSessions={handleReloadSessions}
       />
     </div>
   );

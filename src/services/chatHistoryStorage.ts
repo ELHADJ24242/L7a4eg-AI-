@@ -266,3 +266,30 @@ export function formatSessionTime(timestamp: number): string {
   // Date format
   return `${date.getDate()}/${date.getMonth() + 1}`;
 }
+
+export function exportSessionsData(): string {
+  const sessions = loadSessions();
+  return JSON.stringify(sessions, null, 2);
+}
+
+export function importSessionsData(jsonString: string): { success: boolean; count: number } {
+  try {
+    const parsed = JSON.parse(jsonString);
+    if (Array.isArray(parsed) && parsed.length > 0) {
+      // Validate structure
+      const valid = parsed.filter((s) => s && s.id && Array.isArray(s.messages));
+      if (valid.length > 0) {
+        saveSessions(valid);
+        if (valid[0]?.id) {
+          setActiveSessionId(valid[0].id);
+        }
+        return { success: true, count: valid.length };
+      }
+    }
+    return { success: false, count: 0 };
+  } catch (err) {
+    console.error('Failed to parse imported chat sessions:', err);
+    return { success: false, count: 0 };
+  }
+}
+

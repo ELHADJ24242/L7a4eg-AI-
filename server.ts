@@ -15,6 +15,16 @@ const PORT = Number(process.env.PORT) || 3000;
 
 app.use(express.json());
 
+// Serve public static assets (manifest, icons, screenshots, robots)
+app.use(express.static(path.join(__dirname, 'public'), {
+  setHeaders: (res, filePath) => {
+    if (filePath.endsWith('manifest.json') || filePath.endsWith('.webmanifest')) {
+      res.setHeader('Content-Type', 'application/manifest+json; charset=utf-8');
+      res.setHeader('Cache-Control', 'public, max-age=3600');
+    }
+  }
+}));
+
 // Initialize Google GenAI on server side only
 const apiKey = process.env.GEMINI_API_KEY || '';
 let ai: GoogleGenAI | null = null;

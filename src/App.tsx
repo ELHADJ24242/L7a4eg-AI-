@@ -12,6 +12,7 @@ import { ImageStudioView } from './components/ImageStudioView';
 import { VideoStudioView } from './components/VideoStudioView';
 import { LanguageSelectorModal } from './components/LanguageSelectorModal';
 import { CostNoticeModal } from './components/CostNoticeModal';
+import { OfflineIndicator } from './components/OfflineIndicator';
 import { ThemeMode, getStoredTheme, applyTheme } from './services/theme';
 
 export default function App() {
@@ -88,6 +89,9 @@ export default function App() {
         isOpen={isCostModalOpen}
         onClose={() => setIsCostModalOpen(false)}
       />
+
+      {/* Offline Connectivity Status Pill */}
+      <OfflineIndicator />
     </div>
   );
 }
