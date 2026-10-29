@@ -77,34 +77,61 @@ npm run dev
 
 يعمل الخادم على: `http://localhost:3000`
 
-### بنية المشروع:
+### بنية المشروع المحدثة (Executive Minimalist Architecture):
 ```text
-├── server.ts                       # خادم Express والتعامل مع Gemini SDK وتخزين القاموس
+├── server.ts                       # خادم Express الرئيسي مع دعم Vite وWebSocket وGemini
+├── server.js                       # خادم المصادقة المستقل مع bcrypt وJWT وHTTP-Only Cookie
+├── database.js                     # محرك قاعدة البيانات، تشفير PBKDF2/bcrypt، ومخطط PostgreSQL
 ├── src/
-│   ├── App.tsx                     # نقطة دخول React وتنسيق النوافذ وتغيير RTL/LTR
-│   ├── types.ts                    # تعريفات TypeScript
-│   ├── data/
-│   │   └── languages.ts            # بيانات اللغات وحالات الاختبار وملاحظات الدعم
-│   ├── services/
-│   │   └── api.ts                  # دوال الاتصال بخادم التطبيق (/api/*)
+│   ├── App.tsx                     # نقطة دخول التطبيق مع توجيه /auth والمودالات الذكية
+│   ├── types.ts                    # تعريفات TypeScript الشاملة
+│   ├── contexts/
+│   │   └── AuthContext.tsx         # إدارة سياق المصادقة، الجلسات، ورموز OTP
+│   ├── db/
+│   │   └── database.ts             # جسر أنواع قاعدة البيانات ومخطط SQL
 │   ├── components/
-│   │   ├── Header.tsx              # الترويسة وشعار موريتانيا وزر الأمان المالي
-│   │   ├── Navigation.tsx          # شريط التنقل للحواسيب وشريط القاع للهواتف
-│   │   ├── ChatView.tsx            # المحادثة الذكية مع الاقتراحات والصوت
-│   │   ├── HassaniView.tsx         # لحاذگ الحساني (أمثال، شعر، شاي، لهجة)
-│   │   ├── TranslateView.tsx       # ترجمة عربية-فرنسية-حسانية
-│   │   ├── DictionaryView.tsx      # القاموس المجتمعي ومسار المراجعة
-│   │   ├── ContentCreatorView.tsx  # صانع الإعلانات والمحتوى الموريتاني
-│   │   ├── ImageStudioView.tsx     # استوديو الصور وهندسة الأوامر البصرية
-│   │   ├── VideoStudioView.tsx     # استوديو لوحة القصة وسيناريو الفيديو
-│   │   ├── LanguageSelectorModal.tsx # نافذة اختيار اللغة بمبدأ الأمانة المعرفية
-│   │   └── CostNoticeModal.tsx     # نافذة تفاصيل الاستخدام المجاني
-│   ├── index.css                   # إعدادات Tailwind والخطوط العربية (Cairo)
+│   │   ├── AuthView.tsx            # نموذج تسجيل الدخول وإنشاء الحساب مع Tailwind وRemember Me
+│   │   ├── AuthModal.tsx           # نافذة المصادقة السريعة المنبثقة
+│   │   ├── SmartNotificationsModal.tsx # تنبيهات الامتحانات الوطنية والمنح والصفقات
+│   │   ├── Header.tsx              # الترويسة التنفيذية مع جرس التنبيهات وقائمة المستخدم
+│   │   ├── ChatView.tsx            # نافذة الدردشة الموحدة مع تحليل الوسائط والتفكير المزدوج
+│   │   ├── QuickPortalsBar.tsx     # البوابات السريعة ومؤشر "هل تبحث عن...؟"
+│   │   ├── MediaUploadBar.tsx      # محرك رفع وتحليل الصور والفيديوهات والكتب
+│   │   └── PluginsModal.tsx        # مركز الإضافات الذكية (محول الأوقية، الضرائب، الصفقات)
+│   ├── index.css                   # إعدادات Tailwind CSS v4 والتصميم الرسمي الأنيق
 │   └── main.tsx                    # ربط React بالـ DOM
-├── index.html                      # الصفحة الرئيسية مع إعدادات العنوان والـ RTL
-├── package.json                    # الإعدادات وأوامر التشغيل
-└── README.md                       # دليل التشغيل والتطوير
+├── index.html                      # الصفحة الرئيسية مع الـ Meta والـ Manifest
+├── package.json                    # الإعدادات والحزم المعتمدة (bcryptjs, jsonwebtoken, cookie-parser)
+└── README.md                       # دليل التوثيق والتشغيل
 ```
+
+---
+
+## 🔐 نظام إدارة الحسابات والمصادقة المستقل (Standalone Custom Auth)
+تم بناء نظام مصادقة يدوي ومستقل تماماً دون أي اعتماد على Firebase أو Supabase:
+1. **تشفير كلمات المرور (Password Hashing)**:
+   - استخدام خوارزمية `bcrypt` مع توليد أملاح عشوائية (Salts) لمنع هجمات قواميس التخمين.
+   - دعم التوافق التراجعي مع دوال التشفير القياسية.
+2. **أمان الجلسات (JWT & HTTP-Only Cookies)**:
+   - إصدار توقيعات JWT مشفرة باستخدام `HMAC-SHA256` عبر مفتاح سري على الخادم.
+   - تخزين التوكن في كعكة مشفرة `HTTP-Only Cookie` (`auth_token`) لمنع هجمات XSS.
+   - دعم خيار **"البقاء متصلاً" (Remember Me)** لضبط مدة صلاحية الجلسة (30 يوماً مقابل 24 ساعة).
+3. **رمز التحقق للهواتف الموريتانية (Mauritanian Phone OTP)**:
+   - دعم أرقام موريتانيا عبر كود الدولة `+222` (موريتل، شنقيتل، ماتل).
+   - توليد رمز سري مكون من 6 أرقام بصلاحية 5 دقائق وتتبع عدد المحاولات.
+4. **مسارات المصادقة السريعة المباشرة (OAuth 2.0)**:
+   - واجهات متوافقة مع Google وApple وFacebook.
+
+---
+
+## 🗄️ قاعدة البيانات وتجهيز ترحيل PostgreSQL (Database & Schema)
+- يحتوي ملف `database.js` على تعريفات جداول DDL جاهزة لترحيلها إلى PostgreSQL:
+  * جدول المستخدمين `users`
+  * جدول رموز الهاتف `phone_otps`
+  * جدول الجلسات `auth_sessions`
+  * جدول التنبيهات الوطنية `notifications`
+  * جدول إعدادات الإضافات `enabled_plugins`
+- يعمل النظام فورياً دون الحاجة لتثبيت برمجيات خارجية اعتماداً على مستودع بيانات محلي مشفر ومحمي.
 
 ---
 

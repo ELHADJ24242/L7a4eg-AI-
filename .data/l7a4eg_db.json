@@ -1,0 +1,66 @@
+{
+  "users": [
+    {
+      "id": "usr_1793258562552_2b540e6f",
+      "name": "أحمد الموريتاني",
+      "email": "ahmed@l7a4eg.mr",
+      "passwordHash": "$2b$10$I.Mc79OTKYoXMJm2ex99K.WwGa1sCMS9inImp2jo0rviO0JFxqTum",
+      "passwordSalt": "$2b$10$I.Mc79OTKYoXMJm2ex99K.",
+      "provider": "local",
+      "avatarUrl": "https://api.dicebear.com/7.x/initials/svg?seed=%D8%A3%D8%AD%D9%85%D8%AF%20%D8%A7%D9%84%D9%85%D9%88%D8%B1%D9%8A%D8%AA%D8%A7%D9%86%D9%8A",
+      "role": "member",
+      "preferences": {
+        "preferredLanguage": "hassaniya",
+        "thinkingMode": "fast",
+        "theme": "light"
+      },
+      "createdAt": "2026-10-29T07:22:42.666Z",
+      "updatedAt": "2026-10-29T07:22:42.666Z"
+    }
+  ],
+  "otps": [],
+  "notifications": [
+    {
+      "id": "notif-bac-2026",
+      "titleAr": "روزنامة امتحانات الباكالوريا وختم الدروس 2026",
+      "bodyAr": "أعلنت وزارة التربية وإصلاح النظام التعليمي عن فتح باب التأكيد النهائي للمترشحين الأحرار وجداول مراكز امتحان الباكالوريا وشهادة BEPC.",
+      "category": "exams",
+      "actionPrompt": "لخص لي التواريخ الهامة ومواعيد امتحانات الباكالوريا في موريتانيا لعام 2026",
+      "badgeLabel": "هام للطلاب",
+      "isUrgent": true,
+      "createdAt": "2026-10-29T03:22:36.183Z"
+    },
+    {
+      "id": "notif-scholarship-2026",
+      "titleAr": "منح التميز الموريتانية للدراسات العليا 2026-2027",
+      "bodyAr": "بدء استقبال ملفات الترشح لمنح التميز للدراسة بالخارج (تونس، المغرب، السنغال وفرنسا) لطلبة كليات العلوم والتقنيات والمعهد العالي للمحاسبة.",
+      "category": "scholarships",
+      "actionPrompt": "ما هي شروط ملف الترشح لمنح التميز للدراسة بالخارج للطلبة الموريتانيين؟",
+      "badgeLabel": "منح دراسية",
+      "isUrgent": false,
+      "createdAt": "2026-10-28T13:22:36.183Z"
+    },
+    {
+      "id": "notif-tender-armp-2026",
+      "titleAr": "مناقصة وطنية لوزارة الرقمنة والابتكار وعصرنة الإدارة",
+      "bodyAr": "إعلان صفقات عمومية لتطوير منصات وطنية ذكية للخدمات الرقمية للمواطنين عبر سلطة تنظيم الصفقات العمومية (ARMP).",
+      "category": "tenders",
+      "actionPrompt": "اشرح لي تفاصيل مناقصة وزارة الرقمنة وكيف يمكن للشركات الموريتانية الناشئة التقديم عليها",
+      "badgeLabel": "صفقات عمومية",
+      "isUrgent": true,
+      "createdAt": "2026-10-28T01:22:36.183Z"
+    },
+    {
+      "id": "notif-startup-fund",
+      "titleAr": "إطلاق صندوق تمويل المشاريع الريادية للشباب الموريتاني",
+      "bodyAr": "برنامج جديد لتمويل 50 مشروعاً ناشئاً في مجالات التكنولوجيا والزراعة الذكية برعاية الشركاء الدوليين وصندوق الإيداع والتنمية CDD.",
+      "category": "scholarships",
+      "actionPrompt": "ما هي معايير القبول لتمويل المشاريع الشبابية في موريتانيا وكيف أصيغ دراسة الجدوى؟",
+      "badgeLabel": "ريادة الأعمال",
+      "isUrgent": false,
+      "createdAt": "2026-10-27T05:22:36.183Z"
+    }
+  ],
+  "readNotifications": {},
+  "plugins": {}
+}

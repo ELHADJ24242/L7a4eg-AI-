@@ -11,22 +11,49 @@ import {
   Mic,
   MicOff,
   AlertCircle,
-  Languages,
   RotateCcw,
-  X,
-  Coffee,
-  Scroll,
-  ArrowRightLeft,
-  HeartHandshake,
-  Compass,
-  Info,
   History,
   Plus,
   Share2,
+  Square,
+  Wand2,
+  ArrowRight,
+  HelpCircle,
+  Radio,
+  Paperclip,
+  Brain,
+  Zap,
+  Puzzle,
+  Image,
+  Video,
+  FileText,
+  BookOpen,
+  FileSearch,
+  Loader2,
+  Upload,
 } from 'lucide-react';
-import { ChatMessage, ChatSession, LanguageInfo, LanguageCode } from '../types';
-import { sendChatMessage } from '../services/api';
-import { detectInputLanguage } from '../utils/languageDetector';
+import {
+  ChatMessage,
+  ChatSession,
+  LanguageInfo,
+  LanguageCode,
+  ThinkingMode,
+  AttachedMedia,
+  MediaAnalysisTask,
+  PluginItem,
+  QuickPortalId,
+} from '../types';
+import { streamChatMessage, analyzeMediaFile } from '../services/api';
+import {
+  detectInputLanguage,
+  getSmartExplorations,
+  SmartSuggestionItem,
+  DetectedLanguageType,
+} from '../utils/languageDetector';
+import {
+  correctSpeechTranscript,
+  SpeechCorrectionResult,
+} from '../utils/speechCorrection';
 import {
   loadSessions,
   saveSessions,
@@ -45,261 +72,49 @@ import {
   formatMessageForSharing,
   formatSessionForSharing,
 } from '../utils/shareUtils';
+import { QuickPortalsBar } from './QuickPortalsBar';
+import { QuickPortalsModal } from './QuickPortalsModal';
+import { PluginsModal } from './PluginsModal';
+import { ThinkingBlock } from './ThinkingBlock';
+import { MediaUploadBar } from './MediaUploadBar';
+import { AVAILABLE_PLUGINS } from '../data/pluginsData';
 
 interface ChatViewProps {
   currentLanguage: LanguageInfo;
-  onSelectLanguage: (langCode: string) => void;
+  onSelectLanguage?: (langCode: string) => void;
+  injectedPrompt?: string | null;
+  onClearInjectedPrompt?: () => void;
 }
 
-type HassaniyaFlowCategory = 'greetings' | 'translation' | 'proverbs' | 'hospitality';
-
-interface FlowCategoryOption {
-  id: HassaniyaFlowCategory;
-  label: string;
-  icon: React.ComponentType<{ className?: string }>;
-  description: string;
-  prompts: {
-    title: string;
-    text: string;
-    tag: string;
-  }[];
-}
-
-const HASSANIYA_FLOW_CATEGORIES: FlowCategoryOption[] = [
-  {
-    id: 'greetings',
-    label: 'تحايا ومجاملات',
-    icon: HeartHandshake,
-    description: 'أصول التحية الحسانية، السؤال عن الأهل والدار، ومجاملات اللقاء',
-    prompts: [
-      {
-        title: 'سؤال عن الحال والأهل',
-        text: 'شحالك؟ ولاباس عليك؟ وأهل الدار يخير؟ واش طاري اليوم؟',
-        tag: 'تحية أصيلة',
-      },
-      {
-        title: 'ترحيب بالصديق والرفيق',
-        text: 'مرحبتي بيك يا كمي وسهلاً! امنين انت واشنهي أحوالك والعمل؟',
-        tag: 'أخوة ومودة',
-      },
-      {
-        title: 'تحية الصباح والدعاء بالخير',
-        text: 'صبّحت يخير وسحابك العافية، يكان فم شي جديد وميسر؟',
-        tag: 'صباح الخير',
-      },
-      {
-        title: 'تحية المساء والأتاي',
-        text: 'مسيت يخير! كيف حالك مع كاس أتاي مشحر بالرغوة والنعناع؟',
-        tag: 'مساء الخير',
-      },
-    ],
-  },
-  {
-    id: 'translation',
-    label: 'ترجمة ثلاثية (حساني ⇄ فصحى ⇄ فرنسي)',
-    icon: ArrowRightLeft,
-    description: 'ترجمة فورية متطابقة بين الحسانية الموريتانية والعربية الفصحى والفرنسية',
-    prompts: [
-      {
-        title: 'مودة وزيارة قريبة',
-        text: 'ترجم للحسانية والفرنسية والفصحى: "أنا مسرور جداً بلقائكم وسنزوركم قريباً إن شاء الله"',
-        tag: 'ترجمة ثلاثية',
-      },
-      {
-        title: 'تعبير تجاري (التيفاية والشور)',
-        text: 'كيف نترجم بالفرنسية والفصحى العبارة الحسانية: "هو لاهي يفتح تيفاية زوينة والشور الشور كل شي يتم"؟',
-        tag: 'حساني ➔ فرنسي/فصحى',
-      },
-      {
-        title: 'شكر وامتنان بالفرنسية',
-        text: 'ترجم للحسانية الموريتانية والفصحى الجملة الفرنسية: "Merci beaucoup pour votre accueil chaleureux et ce délicieux thé"',
-        tag: 'فرنسي ➔ حساني/فصحى',
-      },
-      {
-        title: 'سؤال عن مكان وتسوق',
-        text: 'كيف نسأل بالحسانية والفصحى والفرنسية: "أين يقع سوق كابيتال وكم سعر هذه البضاعة؟"',
-        tag: 'تسوق وسياحة',
-      },
-    ],
-  },
-  {
-    id: 'proverbs',
-    label: 'أمثال وتعبيرات شعبية',
-    icon: Scroll,
-    description: 'حِكَم أهل موريتانيا، أصول الكلمات، وتعبيرات لسان البيظان',
-    prompts: [
-      {
-        title: 'مثل الشور الشور والتروي',
-        text: 'أعطني مثلاً حسانياً عن الصبر والتروي مع شرح حكمته وترجمته بالفرنسية والفصحى',
-        tag: 'حكمة الصبر',
-      },
-      {
-        title: 'مثل الرضا والبدائل',
-        text: 'ما معنى المثل الحساني: "إلى فاتك لحم عيّد بالمرقة"؟ وما سياق استخدامه وقصته؟',
-        tag: 'أمثال شعبية',
-      },
-      {
-        title: 'معاني أدوات اللهجة',
-        text: 'اشرح لي معاني هذه الأدوات الحسانية الشائعة: "الشور الشور"، "كاع"، "حك"، و"يكان" مع أمثلة',
-        tag: 'قاموس الحسانية',
-      },
-      {
-        title: 'أصل كلمة التيفاية',
-        text: 'ما هو أصل ومعنى كلمة "التيفاية" في الحسانية وكيف يستخدمها الشباب في التجارة الحرة؟',
-        tag: 'ريادة وتجارة',
-      },
-    ],
-  },
-  {
-    id: 'hospitality',
-    label: 'مجالس وأتاي وضيافة',
-    icon: Coffee,
-    description: 'طقوس الشاي الموريتاني الثلاثية، آداب المجالس، والأكلات التقليدية',
-    prompts: [
-      {
-        title: 'طلب كاس أتاي مشحر',
-        text: 'كيف أطلب كأساً من الشاي الموريتاني (أتاي مشحر) بلهجة أهل البلد وآداب المجلس؟',
-        tag: 'طقس أتاي',
-      },
-      {
-        title: 'الجيمات الثلاث للشاي',
-        text: 'ما هي الجيمات الثلاث في طقس أتاي الموريتاني وما دلالة كل كأس من الكؤوس الثلاثة؟',
-        tag: 'تراث الضيافة',
-      },
-      {
-        title: 'الأكلات الشعبية الموريتانية',
-        text: 'ما هي أشهر الأكلات التقليدية في موريتانيا (مارو والحوت، الكسكس، تيكيت) وكيف نصفها بالحسانية؟',
-        tag: 'مطبخ موريتاني',
-      },
-      {
-        title: 'آداب استقبال الضيف',
-        text: 'ما هي عادات وقواعد استقبال الضيف وإكرامه في المجتمع الموريتاني الأصيل؟',
-        tag: 'كرم الضيافة',
-      },
-    ],
-  },
-];
-
-const GENERAL_PROMPTS = [
-  {
-    label: '🇲🇷 ريادة الأعمال',
-    text: 'كيف أبدأ مشروعاً تجارياً صغيراً في انواكشوط برأس مال متواضع؟',
-  },
-  {
-    label: '📄 طلب خطي إداري',
-    text: 'اكتب لي نموذج طلب خطي رسمي موجه للوالي أو الحاكم في موريتانيا',
-  },
-  {
-    label: '📚 نصائح الباكلوريا',
-    text: 'ما هي أهم النصائح لتنظيم الوقت والاستعداد لمسابقة الباكلوريا في موريتانيا؟',
-  },
-  {
-    label: '🏜️ أمثال حسانية',
-    text: 'اذكر لي ثلاثة أمثال حسانية موريتانية بليغة مع شرح سياقها وحكمتها',
-  },
-];
-
-interface ParsedTranslation {
-  isTranslation: boolean;
-  intro?: string;
-  hassaniya?: string;
-  arabic?: string;
-  french?: string;
-  culturalNote?: string;
-  outro?: string;
-}
-
-function parseTranslationContent(content: string): ParsedTranslation {
-  // Check if content has the 3-way translation pattern
-  const hasHassaniya = content.includes('🇲🇷') || content.includes('بالحسانية');
-  const hasArabic = content.includes('📖') || content.includes('بالعربية الفصحى');
-  const hasFrench = content.includes('🇫🇷') || content.includes('بالفرنسية');
-
-  if (!hasHassaniya || (!hasArabic && !hasFrench)) {
-    return { isTranslation: false };
+// Helper to parse <thinking>...</thinking> tags from assistant messages
+function parseMessageContent(raw: string): { thinkingText?: string; mainContent: string } {
+  if (!raw) return { mainContent: '' };
+  const match = raw.match(/<thinking>([\s\S]*?)<\/thinking>/i);
+  if (match) {
+    const thinkingText = match[1].trim();
+    const mainContent = raw.replace(/<thinking>[\s\S]*?<\/thinking>/i, '').trim();
+    return { thinkingText, mainContent };
   }
-
-  try {
-    const lines = content.split('\n');
-    let introLines: string[] = [];
-    let hassaniyaLines: string[] = [];
-    let arabicLines: string[] = [];
-    let frenchLines: string[] = [];
-    let culturalLines: string[] = [];
-    let outroLines: string[] = [];
-
-    let currentSection: 'intro' | 'hassaniya' | 'arabic' | 'french' | 'cultural' | 'outro' = 'intro';
-
-    for (const rawLine of lines) {
-      const line = rawLine.trim();
-
-      if (line.includes('🇲🇷') || line.includes('**بالحسانية')) {
-        currentSection = 'hassaniya';
-        continue;
-      } else if (line.includes('📖') || line.includes('**بالعربية الفصحى') || line.includes('**بالفصحى')) {
-        currentSection = 'arabic';
-        continue;
-      } else if (line.includes('🇫🇷') || line.includes('**بالفرنسية') || line.includes('**En Français')) {
-        currentSection = 'french';
-        continue;
-      } else if (
-        line.includes('💡') ||
-        line.includes('**السياق والملاحظة الثقافية') ||
-        line.includes('**السياق الثقافي') ||
-        line.includes('**السياق والحكمة')
-      ) {
-        currentSection = 'cultural';
-        continue;
-      }
-
-      if (currentSection === 'intro') {
-        if (line) introLines.push(line);
-      } else if (currentSection === 'hassaniya') {
-        if (line) hassaniyaLines.push(line);
-      } else if (currentSection === 'arabic') {
-        if (line) arabicLines.push(line);
-      } else if (currentSection === 'french') {
-        if (line) frenchLines.push(line);
-      } else if (currentSection === 'cultural') {
-        if (line) culturalLines.push(line);
-      }
-    }
-
-    if (hassaniyaLines.length > 0 || arabicLines.length > 0 || frenchLines.length > 0) {
-      return {
-        isTranslation: true,
-        intro: introLines.join('\n'),
-        hassaniya: hassaniyaLines.join('\n'),
-        arabic: arabicLines.join('\n'),
-        french: frenchLines.join('\n'),
-        culturalNote: culturalLines.join('\n'),
-        outro: outroLines.join('\n'),
-      };
-    }
-  } catch (e) {
-    // Return standard fallback on parsing error
+  // While streaming inside an open <thinking> tag
+  if (raw.includes('<thinking>') && !raw.includes('</thinking>')) {
+    const thinkingText = raw.replace('<thinking>', '').trim();
+    return { thinkingText, mainContent: '' };
   }
-
-  return { isTranslation: false };
+  return { mainContent: raw };
 }
 
-export const ChatView: React.FC<ChatViewProps> = ({ currentLanguage, onSelectLanguage }) => {
-  // Chat History & Persistence State
-  const [sessions, setSessions] = useState<ChatSession[]>(() => loadSessions());
-  const [currentSessionId, setCurrentSessionId] = useState<string | null>(() => {
-    const initialList = loadSessions();
-    const activeId = getActiveSessionId();
-    if (activeId && initialList.some((s) => s.id === activeId)) {
-      return activeId;
-    }
-    return initialList.length > 0 ? initialList[0].id : null;
-  });
+export const ChatView: React.FC<ChatViewProps> = ({
+  currentLanguage,
+  onSelectLanguage,
+  injectedPrompt,
+  onClearInjectedPrompt,
+}) => {
+  // Chat sessions state
+  const [sessions, setSessions] = useState<ChatSession[]>(loadSessions);
+  const [currentSessionId, setCurrentSessionId] = useState<string | null>(getActiveSessionId);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
 
-  const [personaMode, setPersonaMode] = useState<'hassaniya_expert' | 'general'>('hassaniya_expert');
-  const [activeFlowCategory, setActiveFlowCategory] = useState<HassaniyaFlowCategory>('greetings');
-  const [showFlowMenu, setShowFlowMenu] = useState(true);
-
+  // Messages state
   const [messages, setMessages] = useState<ChatMessage[]>(() => {
     const loaded = loadSessions();
     const active = getActiveSessionId();
@@ -314,30 +129,43 @@ export const ChatView: React.FC<ChatViewProps> = ({ currentLanguage, onSelectLan
   const [isLoading, setIsLoading] = useState(false);
   const [copiedId, setCopiedId] = useState<string | null>(null);
 
-  // Web Speech API Voice-to-Text states
+  // Dual Thinking Mode state: 'fast' (⚡ الرد السريع) vs 'deep' (🧠 التفكير والبحث العميق)
+  const [thinkingMode, setThinkingMode] = useState<ThinkingMode>('fast');
+
+  // Multimodal File Attachments (Images, Videos, Books/Documents)
+  const [attachments, setAttachments] = useState<AttachedMedia[]>([]);
+
+  // Plugins & Extensions Hub state
+  const [plugins, setPlugins] = useState<PluginItem[]>(() => {
+    try {
+      const stored = localStorage.getItem('l7a4eg_plugins_v1');
+      if (stored) return JSON.parse(stored);
+    } catch {}
+    return AVAILABLE_PLUGINS;
+  });
+  const [isPluginsModalOpen, setIsPluginsModalOpen] = useState(false);
+
+  // Quick Navigation Portals state
+  const [isPortalsModalOpen, setIsPortalsModalOpen] = useState(false);
+  const [activePortalId, setActivePortalId] = useState<QuickPortalId>('celebrity');
+
+  // Dynamic conversation language tracking
+  const [activeLang, setActiveLang] = useState<DetectedLanguageType>('hassaniya');
+  const [languageFeedbackToast, setLanguageFeedbackToast] = useState<{
+    show: boolean;
+    langName: string;
+    flag: string;
+  } | null>(null);
+
+  // Web Speech & Audio Transcription states
   const [isListening, setIsListening] = useState(false);
   const [interimTranscript, setInterimTranscript] = useState('');
-  const [speechDialect, setSpeechDialect] = useState<'ar-MR' | 'ar-SA' | 'fr-FR' | 'wo-SN'>(() => {
-    if (currentLanguage.code === 'arabic') return 'ar-SA';
-    if (currentLanguage.code === 'french') return 'fr-FR';
-    if (currentLanguage.code === 'wolof') return 'wo-SN';
-    return 'ar-MR'; // Default to Mauritanian Hassaniya
-  });
-  const [speechError, setSpeechError] = useState<{
-    type: 'unsupported' | 'permission' | 'error';
-    message: string;
-  } | null>(null);
-  const [speechFallbackNotice, setSpeechFallbackNotice] = useState<string | null>(null);
-  const isListeningIntentRef = useRef(false);
+  const [speechSeconds, setSpeechSeconds] = useState(0);
+  const [lastCorrection, setLastCorrection] = useState<SpeechCorrectionResult | null>(null);
+  const [speechError, setSpeechError] = useState<string | null>(null);
 
-  const [langSwitchToast, setLangSwitchToast] = useState<{
-    show: boolean;
-    detectedLangCode: string;
-    detectedLangName: string;
-    previousLangCode: string;
-    previousLangName: string;
-    matchedKeywords?: string[];
-  } | null>(null);
+  // Streaming Abort Controller
+  const abortControllerRef = useRef<AbortController | null>(null);
 
   // Share functionality modal state
   const [shareModalState, setShareModalState] = useState<{
@@ -352,9 +180,38 @@ export const ChatView: React.FC<ChatViewProps> = ({ currentLanguage, onSelectLan
     shareText: '',
   });
 
+  // Media analysis & attachment menu states
+  const [isAttachMenuOpen, setIsAttachMenuOpen] = useState(false);
+  const [analyzingMediaId, setAnalyzingMediaId] = useState<string | null>(null);
+  const [mediaAnalysisBanner, setMediaAnalysisBanner] = useState<{
+    task: MediaAnalysisTask;
+    fileName: string;
+  } | null>(null);
+
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const recognitionRef = useRef<any>(null);
+  const speechTimerRef = useRef<any>(null);
   const toastTimerRef = useRef<any>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
+  const fileInputHiddenRef = useRef<HTMLInputElement>(null);
+  const ocrFileInputRef = useRef<HTMLInputElement>(null);
+  const bookFileInputRef = useRef<HTMLInputElement>(null);
+  const attachMenuRef = useRef<HTMLDivElement>(null);
+
+  // Close attach menu on outside click
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (attachMenuRef.current && !attachMenuRef.current.contains(event.target as Node)) {
+        setIsAttachMenuOpen(false);
+      }
+    };
+    if (isAttachMenuOpen) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [isAttachMenuOpen]);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -364,13 +221,27 @@ export const ChatView: React.FC<ChatViewProps> = ({ currentLanguage, onSelectLan
     scrollToBottom();
   }, [messages, isLoading]);
 
+  // Save plugins state on changes
+  useEffect(() => {
+    try {
+      localStorage.setItem('l7a4eg_plugins_v1', JSON.stringify(plugins));
+    } catch {}
+  }, [plugins]);
+
+  const handleTogglePlugin = (pluginId: string) => {
+    setPlugins((prev) =>
+      prev.map((p) => (p.id === pluginId ? { ...p, enabled: !p.enabled } : p))
+    );
+  };
+
   // Initialize or restore active session on mount
   useEffect(() => {
     const existing = loadSessions();
     if (existing.length === 0) {
-      const newSession = createNewSession(personaMode, currentLanguage.code);
+      const newSession = createNewSession('hassaniya_expert', currentLanguage.code);
       setSessions([newSession]);
       setCurrentSessionId(newSession.id);
+      setActiveSessionId(newSession.id);
       setMessages(newSession.messages);
     } else {
       const activeId = getActiveSessionId();
@@ -379,12 +250,11 @@ export const ChatView: React.FC<ChatViewProps> = ({ currentLanguage, onSelectLan
         setCurrentSessionId(current.id);
         setActiveSessionId(current.id);
         setMessages(current.messages);
-        if (current.personaMode) {
-          setPersonaMode(current.personaMode);
-        }
       }
     }
   }, []);
+
+  const currentSession = sessions.find((s) => s.id === currentSessionId);
 
   const handleSelectSession = (sessionId: string) => {
     const target = sessions.find((s) => s.id === sessionId);
@@ -392,52 +262,39 @@ export const ChatView: React.FC<ChatViewProps> = ({ currentLanguage, onSelectLan
       setCurrentSessionId(sessionId);
       setActiveSessionId(sessionId);
       setMessages(target.messages);
-      if (target.personaMode) {
-        setPersonaMode(target.personaMode);
-      }
-      if (target.languageCode && onSelectLanguage) {
-        onSelectLanguage(target.languageCode);
-      }
-    }
-  };
-
-  const handleReloadSessions = () => {
-    const loaded = loadSessions();
-    setSessions(loaded);
-    const active = getActiveSessionId();
-    const curr = (active && loaded.find((s) => s.id === active)) || (loaded.length > 0 ? loaded[0] : null);
-    if (curr) {
-      setCurrentSessionId(curr.id);
-      setActiveSessionId(curr.id);
-      setMessages(curr.messages);
-      if (curr.personaMode) setPersonaMode(curr.personaMode);
-      if (curr.languageCode && onSelectLanguage) onSelectLanguage(curr.languageCode);
+      setIsSidebarOpen(false);
     }
   };
 
   const handleStartNewSession = () => {
-    const newSession = createNewSession(personaMode, currentLanguage.code);
-    const updated = loadSessions();
+    const newSession = createNewSession('hassaniya_expert', currentLanguage.code);
+    const updated = [newSession, ...sessions];
     setSessions(updated);
+    saveSessions(updated);
     setCurrentSessionId(newSession.id);
+    setActiveSessionId(newSession.id);
     setMessages(newSession.messages);
+    setIsSidebarOpen(false);
     setInput('');
+    setAttachments([]);
+    setLastCorrection(null);
   };
 
   const handleDeleteSession = (sessionId: string) => {
     const { remaining, nextActiveId } = deleteSession(sessionId);
     setSessions(remaining);
-    if (remaining.length === 0) {
-      const fresh = createNewSession(personaMode, currentLanguage.code);
-      setSessions([fresh]);
-      setCurrentSessionId(fresh.id);
-      setMessages(fresh.messages);
-    } else if (currentSessionId === sessionId) {
-      const nextSession = remaining.find((s) => s.id === nextActiveId) || remaining[0];
-      setCurrentSessionId(nextSession.id);
-      setMessages(nextSession.messages);
-      if (nextSession.personaMode) {
-        setPersonaMode(nextSession.personaMode);
+    if (currentSessionId === sessionId) {
+      if (nextActiveId) {
+        const next = remaining.find((s) => s.id === nextActiveId) || remaining[0];
+        if (next) {
+          setCurrentSessionId(next.id);
+          setActiveSessionId(next.id);
+          setMessages(next.messages);
+        } else {
+          handleStartNewSession();
+        }
+      } else {
+        handleStartNewSession();
       }
     }
   };
@@ -449,70 +306,96 @@ export const ChatView: React.FC<ChatViewProps> = ({ currentLanguage, onSelectLan
 
   const handleClearAllSessions = () => {
     clearAllSessions();
-    const fresh = createNewSession(personaMode, currentLanguage.code);
+    const fresh = createNewSession('hassaniya_expert', currentLanguage.code);
     setSessions([fresh]);
     setCurrentSessionId(fresh.id);
+    setActiveSessionId(fresh.id);
     setMessages(fresh.messages);
+    setIsSidebarOpen(false);
   };
 
-  const handleSend = async (textToSend?: string) => {
-    const query = (textToSend || input).trim();
-    if (!query || isLoading) return;
-
-    // Automatic Language Detection & Switching
-    const detection = detectInputLanguage(query, currentLanguage.code);
-    let targetLanguageCode = currentLanguage.code;
-
-    if (detection && detection.isDifferentFromCurrent && detection.detectedLang) {
-      const prevCode = currentLanguage.code;
-      const prevName = currentLanguage.nameArabic || currentLanguage.nameNative;
-      targetLanguageCode = detection.detectedLang;
-
-      // Switch language immediately
-      if (onSelectLanguage) {
-        onSelectLanguage(detection.detectedLang);
-      }
-
-      // Display immediate toast alert
-      if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
-      setLangSwitchToast({
-        show: true,
-        detectedLangCode: detection.detectedLang,
-        detectedLangName: detection.langNameArabic,
-        previousLangCode: prevCode,
-        previousLangName: prevName,
-        matchedKeywords: detection.matchedKeywords,
-      });
-
-      // Auto dismiss toast after 4.5 seconds
-      toastTimerRef.current = setTimeout(() => {
-        setLangSwitchToast(null);
-      }, 4500);
+  // Dynamic language notification toast
+  const triggerLanguageSwitchToast = (lang: DetectedLanguageType) => {
+    if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+    let langName = 'اللهجة الحسانية الموريتانية';
+    let flag = '🇲🇷';
+    if (lang === 'french') {
+      langName = 'Langue Française';
+      flag = '🇫🇷';
+    } else if (lang === 'arabic') {
+      langName = 'العربية الفصحى';
+      flag = '🇸🇦';
     }
+
+    setLanguageFeedbackToast({ show: true, langName, flag });
+    toastTimerRef.current = setTimeout(() => {
+      setLanguageFeedbackToast(null);
+    }, 2800);
+  };
+
+  // Main Send Message Handler
+  const handleSend = async (manualQuery?: string) => {
+    const query = (manualQuery || input).trim();
+    if (!query && attachments.length === 0) return;
+    if (isLoading) return;
+
+    // Detect input language dynamically
+    const detection = detectInputLanguage(query);
+    if (detection.detectedLang !== activeLang && query.length > 2) {
+      setActiveLang(detection.detectedLang);
+      triggerLanguageSwitchToast(detection.detectedLang);
+    }
+
+    if (onSelectLanguage && detection.detectedLang) {
+      onSelectLanguage(detection.detectedLang);
+    }
+
+    const currentAttachments = [...attachments];
 
     const userMessage: ChatMessage = {
       id: 'msg-' + Date.now(),
       role: 'user',
       content: query,
       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-      language: targetLanguageCode as LanguageCode,
+      language: detection.detectedLang,
+      thinkingMode,
+      attachments: currentAttachments.length > 0 ? currentAttachments : undefined,
     };
 
     const nextMessages = [...messages, userMessage];
     setMessages(nextMessages);
     setInput('');
+    setAttachments([]);
     setIsLoading(true);
 
     let activeId = currentSessionId;
     if (!activeId) {
-      const newSess = createNewSession(personaMode, targetLanguageCode);
+      const newSess = createNewSession('hassaniya_expert', detection.detectedLang);
       activeId = newSess.id;
       setCurrentSessionId(activeId);
+      setActiveSessionId(activeId);
     }
 
     // Persist immediately to localStorage
-    const sessionsWithUser = updateSessionMessages(activeId, nextMessages, targetLanguageCode);
+    const sessionsWithUser = updateSessionMessages(activeId, nextMessages, detection.detectedLang);
     setSessions(sessionsWithUser);
+
+    // Placeholder assistant message for streaming
+    const assistantMsgId = 'res-' + Date.now();
+    const assistantMessage: ChatMessage = {
+      id: assistantMsgId,
+      role: 'assistant',
+      content: '',
+      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      confidence: 'high',
+      language: detection.detectedLang,
+      thinkingMode,
+    };
+    setMessages([...nextMessages, assistantMessage]);
+
+    // Setup AbortController for streaming cancellation
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
 
     try {
       const history = messages.slice(-6).map((m) => ({
@@ -520,194 +403,117 @@ export const ChatView: React.FC<ChatViewProps> = ({ currentLanguage, onSelectLan
         content: m.content,
       }));
 
-      const response = await sendChatMessage(
+      const activePluginIds = plugins.filter((p) => p.enabled).map((p) => p.id);
+
+      await streamChatMessage(
         query,
-        targetLanguageCode,
         history,
-        personaMode
+        (accumulatedText) => {
+          // Live chunk callback
+          setMessages((prev) =>
+            prev.map((m) => (m.id === assistantMsgId ? { ...m, content: accumulatedText } : m))
+          );
+        },
+        (finalText) => {
+          // Done callback
+          const finalizedMessages = nextMessages.concat({
+            ...assistantMessage,
+            content: finalText,
+          });
+          setMessages(finalizedMessages);
+          const updated = updateSessionMessages(activeId!, finalizedMessages, detection.detectedLang);
+          setSessions(updated);
+          setIsLoading(false);
+          abortControllerRef.current = null;
+        },
+        (error) => {
+          console.warn('Streaming notice (fallback engaged):', error?.message || error);
+          const fallbackText =
+            'عذراً، حدث انقطاع في الاتصال السريع. يمكنك المحاولة مجدداً أو إعادة صياغة السؤال.';
+          const finalizedMessages = nextMessages.concat({
+            ...assistantMessage,
+            content: fallbackText,
+            confidence: 'limited_support',
+          });
+          setMessages(finalizedMessages);
+          const updated = updateSessionMessages(activeId!, finalizedMessages, detection.detectedLang);
+          setSessions(updated);
+          setIsLoading(false);
+          abortControllerRef.current = null;
+        },
+        controller.signal,
+        {
+          thinkingMode,
+          attachments: currentAttachments.map((a) => ({
+            name: a.name,
+            type: a.type,
+            mimeType: a.mimeType,
+            base64Data: a.base64Data,
+          })),
+          activePlugins: activePluginIds,
+        }
       );
-
-      const assistantMessage: ChatMessage = {
-        id: 'res-' + Date.now(),
-        role: 'assistant',
-        content: response.reply,
-        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-        confidence: response.confidence,
-        language: targetLanguageCode as LanguageCode,
-      };
-
-      const finalMessages = [...nextMessages, assistantMessage];
-      setMessages(finalMessages);
-      const updated = updateSessionMessages(activeId, finalMessages, targetLanguageCode);
-      setSessions(updated);
-    } catch (error: any) {
-      const errorMessage: ChatMessage = {
-        id: 'err-' + Date.now(),
-        role: 'assistant',
-        content:
-          'عذراً، حدث خطأ أثناء الاتصال بالخادم. يرجى التأكد من اتصال الإنترنت والمحاولة مرة أخرى.\n(' +
-          (error.message || 'خطأ غير معروف') +
-          ')',
-        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-        confidence: 'limited_support',
-      };
-      const finalMessages = [...nextMessages, errorMessage];
-      setMessages(finalMessages);
-      const updated = updateSessionMessages(activeId, finalMessages, targetLanguageCode);
-      setSessions(updated);
-    } finally {
+    } catch (err: any) {
+      if (controller.signal.aborted) return;
       setIsLoading(false);
     }
   };
 
-  const handleUndoLangSwitch = () => {
-    if (langSwitchToast && onSelectLanguage) {
-      onSelectLanguage(langSwitchToast.previousLangCode);
-      if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
-      setLangSwitchToast(null);
+  const handleStopStreaming = () => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+      abortControllerRef.current = null;
+      setIsLoading(false);
     }
   };
 
-  const handleCopy = (id: string, text: string) => {
-    navigator.clipboard.writeText(text);
-    setCopiedId(id);
-    setTimeout(() => setCopiedId(null), 2000);
-  };
-
-  const handleOpenShareMessage = (content: string, userPrompt?: string) => {
-    const formatted = formatMessageForSharing(
-      content,
-      userPrompt,
-      personaMode === 'hassaniya_expert' ? 'الحسانية الموريتانية الأصيلة' : 'المساعد الموريتاني العام'
-    );
-    setShareModalState({
-      isOpen: true,
-      title: 'مشاركة إجابة لحاذگ',
-      shareText: formatted,
-      subtitle: userPrompt || 'إجابة من لحاذگ AI',
-      categoryTag: personaMode === 'hassaniya_expert' ? 'الحسانية 🇲🇷' : 'لحاذگ AI',
-    });
-  };
-
-  const handleOpenShareSession = () => {
-    const active = (currentSessionId && sessions.find((s) => s.id === currentSessionId)) || sessions[0];
-    if (!active) return;
-    const formatted = formatSessionForSharing(active);
-    setShareModalState({
-      isOpen: true,
-      title: active.title,
-      shareText: formatted,
-      subtitle: `محادثة كاملة (${active.messages.length} رسالة)`,
-      categoryTag: 'ملخص محادثة 🇲🇷',
-    });
-  };
-
-  const handleSpeak = (text: string, customLang?: string) => {
-    if ('speechSynthesis' in window) {
-      window.speechSynthesis.cancel();
-      const utterance = new SpeechSynthesisUtterance(text);
-      if (customLang) {
-        utterance.lang = customLang;
-      } else if (currentLanguage.dir === 'rtl') {
-        utterance.lang = 'ar-SA';
-      } else if (currentLanguage.code === 'french') {
-        utterance.lang = 'fr-FR';
-      }
-      window.speechSynthesis.speak(utterance);
-    }
-  };
-
-  // Stop any active speech recognition and timers on unmount
+  // Handle externally injected prompts (e.g. from Smart Notifications or Portals)
   useEffect(() => {
-    return () => {
-      if (recognitionRef.current) {
-        try {
-          recognitionRef.current.abort();
-        } catch (e) {}
+    if (injectedPrompt && injectedPrompt.trim()) {
+      handleSend(injectedPrompt.trim());
+      if (onClearInjectedPrompt) {
+        onClearInjectedPrompt();
       }
-      if (toastTimerRef.current) {
-        clearTimeout(toastTimerRef.current);
-      }
-    };
-  }, []);
-
-  // Keep speech dialect synchronized with active app language
-  useEffect(() => {
-    if (currentLanguage.code === 'arabic') {
-      setSpeechDialect('ar-SA');
-    } else if (currentLanguage.code === 'french') {
-      setSpeechDialect('fr-FR');
-    } else if (currentLanguage.code === 'wolof') {
-      setSpeechDialect('wo-SN');
-    } else if (currentLanguage.code === 'hassaniya') {
-      setSpeechDialect('ar-MR');
     }
-  }, [currentLanguage.code]);
+  }, [injectedPrompt]);
 
-  const SPEECH_DIALECT_OPTIONS = [
-    { code: 'ar-MR', label: 'حسانية موريتانية', flag: '🇲🇷', sub: 'اللهجة الحسانية المحلية' },
-    { code: 'ar-SA', label: 'عربية فصحى', flag: '🇸🇦', sub: 'العربية القياسية الشاملة' },
-    { code: 'fr-FR', label: 'الفرنسية', flag: '🇫🇷', sub: 'Français' },
-    { code: 'wo-SN', label: 'الولوفية', flag: '🇸🇳', sub: 'Wolof' },
-  ] as const;
-
-  const stopVoiceInput = () => {
-    isListeningIntentRef.current = false;
-    if (recognitionRef.current) {
-      try {
-        recognitionRef.current.stop();
-      } catch (e) {}
-    }
-
-    // Flush any pending interim speech directly into the input so no words are lost
-    if (interimTranscript && interimTranscript.trim()) {
-      setInput((prev) => {
-        const trimmed = prev.trim();
-        return trimmed ? `${trimmed} ${interimTranscript.trim()}` : interimTranscript.trim();
-      });
-    }
-
-    setIsListening(false);
-    setInterimTranscript('');
-  };
-
-  const startVoiceInput = (targetDialect?: 'ar-MR' | 'ar-SA' | 'fr-FR' | 'wo-SN') => {
+  // Web Speech API Voice-to-Text with Hassaniya & French Phonetic Error Correction
+  const startVoiceInput = () => {
     const SpeechRecognition =
       (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
 
     if (!SpeechRecognition) {
-      setSpeechError({
-        type: 'unsupported',
-        message:
-          'ميزة الإملاء الصوتي المباشر (Web Speech API) غير مدعومة في متصفحك الحالي. نوصي باستخدام متصفح Google Chrome أو Microsoft Edge أو Safari للحصول على أفضل تجربة إملاء صوتي بالحسانية والعربية.',
-      });
+      setSpeechError(
+        'ميزة الإملاء الصوتي غير مدعومة في متصفحك الحالي. يرجى استخدام متصفح Chrome أو Safari.'
+      );
       return;
     }
 
-    // Abort previous session if exists
     if (recognitionRef.current) {
       try {
         recognitionRef.current.abort();
       } catch (e) {}
     }
 
-    const activeDialect = targetDialect || speechDialect;
     setSpeechError(null);
     setInterimTranscript('');
-    isListeningIntentRef.current = true;
+    setSpeechSeconds(0);
+    setLastCorrection(null);
 
     try {
       const recognition = new SpeechRecognition();
       recognitionRef.current = recognition;
 
-      recognition.lang = activeDialect;
+      recognition.lang = activeLang === 'french' ? 'fr-FR' : 'ar-MR';
       recognition.continuous = true;
       recognition.interimResults = true;
       recognition.maxAlternatives = 1;
 
       recognition.onstart = () => {
         setIsListening(true);
-        setSpeechError(null);
+        speechTimerRef.current = setInterval(() => {
+          setSpeechSeconds((prev) => prev + 1);
+        }, 1000);
       };
 
       recognition.onresult = (event: any) => {
@@ -724,9 +530,11 @@ export const ChatView: React.FC<ChatViewProps> = ({ currentLanguage, onSelectLan
         }
 
         if (finalSegment) {
+          const correction = correctSpeechTranscript(finalSegment);
+          setLastCorrection(correction);
           setInput((prev) => {
             const trimmed = prev.trim();
-            return trimmed ? `${trimmed} ${finalSegment.trim()}` : finalSegment.trim();
+            return trimmed ? `${trimmed} ${correction.correctedText}` : correction.correctedText;
           });
         }
 
@@ -735,517 +543,633 @@ export const ChatView: React.FC<ChatViewProps> = ({ currentLanguage, onSelectLan
 
       recognition.onerror = (event: any) => {
         console.warn('SpeechRecognition error:', event.error);
-        if (event.error === 'not-allowed' || event.error === 'service-not-allowed') {
-          isListeningIntentRef.current = false;
-          setIsListening(false);
-          setSpeechError({
-            type: 'permission',
-            message:
-              'تم حظر إذن الميكروفون. يرجى النقر على أيقونة القفل أو إعدادات الموقع في شريط عنوان المتصفح، والسماح للميكروفون، ثم إعادة المحاولة.',
-          });
-        } else if (event.error === 'language-not-supported' && activeDialect === 'ar-MR') {
-          // If browser dictionary does not have explicit ar-MR acoustic model, fallback to ar-SA seamlessly
-          console.info('ar-MR speech engine unsupported on this browser, auto-falling back to ar-SA');
-          setSpeechDialect('ar-SA');
-          setSpeechFallbackNotice('تم التبديل تلقائياً إلى محرك العربية الفصحى (ar-SA) المتوافق مع متصفحك، مع استمرار فهم الكلمات الحسانية.');
-          try {
-            recognition.abort();
-          } catch (e) {}
-          setTimeout(() => {
-            if (isListeningIntentRef.current) {
-              startVoiceInput('ar-SA');
-            }
-          }, 200);
-        } else if (event.error === 'no-speech') {
-          // Normal silence timeout in some browsers, do not abort listening intent
-        } else if (event.error === 'audio-capture') {
-          isListeningIntentRef.current = false;
-          setIsListening(false);
-          setSpeechError({
-            type: 'error',
-            message: 'تعذر التقاط الصوت. يرجى التأكد من توصيل الميكروفون وسلامته.',
-          });
+        if (event.error === 'not-allowed') {
+          setSpeechError('تم حظر إذن الميكروفون. يرجى السماح به في إعدادات المتصفح.');
+        } else if (event.error === 'language-not-supported' && recognition.lang === 'ar-MR') {
+          recognition.lang = 'ar-SA';
         }
       };
 
       recognition.onend = () => {
-        if (isListeningIntentRef.current) {
-          // Browser closed stream due to silence pause; restart if user still intends to dictate
-          try {
-            recognition.start();
-            return;
-          } catch (e) {}
-        }
         setIsListening(false);
-        setInterimTranscript('');
+        if (speechTimerRef.current) clearInterval(speechTimerRef.current);
       };
 
       recognition.start();
     } catch (err: any) {
       console.error('Failed to start speech recognition:', err);
-      setIsListening(false);
-      isListeningIntentRef.current = false;
-      setSpeechError({
-        type: 'error',
-        message: 'حدث خطأ أثناء بدء التعرف الصوتي: ' + (err.message || 'خطأ غير معروف'),
+      setSpeechError('تعذر بدء التسجيل الصوتي.');
+    }
+  };
+
+  const stopVoiceInput = (autoSend: boolean = false) => {
+    if (recognitionRef.current) {
+      try {
+        recognitionRef.current.stop();
+      } catch (e) {}
+    }
+    if (speechTimerRef.current) clearInterval(speechTimerRef.current);
+
+    let finalTextToFlush = '';
+    if (interimTranscript && interimTranscript.trim()) {
+      const correction = correctSpeechTranscript(interimTranscript);
+      setLastCorrection(correction);
+      finalTextToFlush = correction.correctedText;
+      setInput((prev) => {
+        const trimmed = prev.trim();
+        return trimmed ? `${trimmed} ${finalTextToFlush}` : finalTextToFlush;
       });
     }
-  };
 
-  const toggleVoiceInput = () => {
-    if (isListening) {
-      stopVoiceInput();
-    } else {
-      startVoiceInput();
-    }
-  };
+    setIsListening(false);
+    setInterimTranscript('');
+    setSpeechSeconds(0);
 
-  const switchSpeechDialect = (newDialect: 'ar-MR' | 'ar-SA' | 'fr-FR' | 'wo-SN') => {
-    setSpeechDialect(newDialect);
-    setSpeechFallbackNotice(null);
-    if (isListening) {
-      stopVoiceInput();
+    if (autoSend) {
       setTimeout(() => {
-        startVoiceInput(newDialect);
-      }, 150);
+        handleSend();
+      }, 100);
     }
   };
 
-  const handleFinishVoiceAndSend = () => {
-    stopVoiceInput();
-    setTimeout(() => {
-      handleSend();
-    }, 150);
+  const handleCopy = (id: string, text: string) => {
+    navigator.clipboard.writeText(text);
+    setCopiedId(id);
+    setTimeout(() => setCopiedId(null), 2000);
   };
 
-  const clearChat = () => {
-    if (window.confirm('هل تود مسح رسائل هذه المحادثة والبدء من جديد مع لحاذگ؟')) {
-      const welcomeMsg = createWelcomeMessage(personaMode, currentLanguage.code);
-      const newMessages = [welcomeMsg];
-      setMessages(newMessages);
-      if (currentSessionId) {
-        const updated = updateSessionMessages(currentSessionId, newMessages, currentLanguage.code);
-        setSessions(updated);
+  const handleSpeak = (text: string, lang?: string) => {
+    if ('speechSynthesis' in window) {
+      window.speechSynthesis.cancel();
+      const utterance = new SpeechSynthesisUtterance(text);
+      if (lang === 'french') {
+        utterance.lang = 'fr-FR';
+      } else {
+        utterance.lang = 'ar-XA';
       }
+      utterance.rate = 1.0;
+      window.speechSynthesis.speak(utterance);
     }
   };
 
-  const isLimitedLanguage = ['pulaar', 'soninke', 'wolof', 'bambara'].includes(currentLanguage.code);
-  const currentCategory = HASSANIYA_FLOW_CATEGORIES.find((c) => c.id === activeFlowCategory)!;
-  const currentSession = sessions.find((s) => s.id === currentSessionId);
+  const handleOpenShareMessage = (msg: ChatMessage) => {
+    const shareText = formatMessageForSharing(msg.content);
+    setShareModalState({
+      isOpen: true,
+      title: 'مشاركة إجابة من لحاذگ AI',
+      shareText,
+      subtitle: `رد بلسان ${msg.language || 'الحسانية'} • ${msg.timestamp}`,
+      categoryTag: 'محادثة ذكية',
+    });
+  };
+
+  const handleOpenShareSession = () => {
+    if (!currentSession) return;
+    const shareText = formatSessionForSharing(currentSession);
+    setShareModalState({
+      isOpen: true,
+      title: 'مشاركة جلسة المحادثة',
+      shareText,
+      subtitle: `${currentSession.title} (${currentSession.messages.length} رسالة)`,
+      categoryTag: 'جلسة لحاذگ',
+    });
+  };
+
+  // Multimodal File Handlers
+  const handleAddAttachment = (item: AttachedMedia) => {
+    setAttachments((prev) => [...prev, item]);
+  };
+
+  const handleRemoveAttachment = (id: string) => {
+    setAttachments((prev) => prev.filter((a) => a.id !== id));
+  };
+
+  const readFileAsAttachedMedia = (file: File): Promise<AttachedMedia> => {
+    return new Promise((resolve) => {
+      let type: 'image' | 'video' | 'document' = 'document';
+      if (file.type.startsWith('image/')) type = 'image';
+      else if (file.type.startsWith('video/')) type = 'video';
+      else if (
+        file.type === 'application/pdf' ||
+        file.type.includes('document') ||
+        file.type.includes('text') ||
+        file.name.endsWith('.pdf') ||
+        file.name.endsWith('.txt') ||
+        file.name.endsWith('.docx')
+      ) {
+        type = 'document';
+      }
+
+      const reader = new FileReader();
+      reader.onload = () => {
+        const resultStr = reader.result as string;
+        const base64Data = resultStr.includes(',')
+          ? resultStr.split(',')[1]
+          : resultStr;
+
+        const media: AttachedMedia = {
+          id: `media-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+          name: file.name,
+          type,
+          mimeType: file.type || (type === 'document' ? 'application/pdf' : 'application/octet-stream'),
+          size: file.size,
+          previewUrl: type === 'image' ? resultStr : '',
+          base64Data,
+        };
+        resolve(media);
+      };
+      reader.readAsDataURL(file);
+    });
+  };
+
+  // Trigger Dedicated Media Analysis (OCR Text Extraction or Book / Document Summarization)
+  const handleTriggerMediaAnalysis = async (
+    media: AttachedMedia,
+    task: MediaAnalysisTask,
+    customPrompt?: string
+  ) => {
+    if (analyzingMediaId) return;
+    setAnalyzingMediaId(media.id);
+    setMediaAnalysisBanner({ task, fileName: media.name });
+
+    let activeId = currentSessionId;
+    if (!activeId) {
+      const newSess = createNewSession('hassaniya_expert', activeLang);
+      activeId = newSess.id;
+      setCurrentSessionId(activeId);
+      setActiveSessionId(activeId);
+    }
+
+    const taskTitle =
+      task === 'extract_text'
+        ? `📄 طلب استخراج النصوص الضوئية (OCR) من: ${media.name}`
+        : task === 'summarize_book'
+        ? `📚 طلب تلخيص وتحليل محتوى الكتاب / المستند: ${media.name}`
+        : `🔍 طلب تحليل شامل ومناقشة حول الملف: ${media.name}`;
+
+    const userMessage: ChatMessage = {
+      id: 'msg-' + Date.now(),
+      role: 'user',
+      content: taskTitle,
+      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      attachments: [media],
+      thinkingMode,
+    };
+
+    const assistantMsgId = 'res-' + Date.now();
+    const assistantLoadingMessage: ChatMessage = {
+      id: assistantMsgId,
+      role: 'assistant',
+      content:
+        task === 'extract_text'
+          ? '⏳ جاري استخراج النصوص وقراءة محتوى الصورة بدقة عبر محرك لحاذگ OCR...'
+          : '⏳ جاري دراسة فصول الكتاب والمناهج وإعداد التلخيص الأكاديمي الشامل...',
+      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      confidence: 'high',
+      thinkingMode,
+    };
+
+    const nextMessages = [...messages, userMessage, assistantLoadingMessage];
+    setMessages(nextMessages);
+
+    try {
+      const response = await analyzeMediaFile({
+        file: {
+          name: media.name,
+          type: media.type,
+          mimeType: media.mimeType,
+          base64Data: media.base64Data,
+        },
+        task,
+        customPrompt,
+        language: activeLang,
+      });
+
+      const finalizedAssistantMessage: ChatMessage = {
+        ...assistantLoadingMessage,
+        content: response.result || 'تم فحص الملف واستخراج نتائجه بنجاح.',
+        confidence: 'high',
+      };
+
+      const finalMessages: ChatMessage[] = [...messages, userMessage, finalizedAssistantMessage];
+      setMessages(finalMessages);
+      const updatedSessions = updateSessionMessages(activeId, finalMessages, activeLang);
+      setSessions(updatedSessions);
+
+      // Clean analyzed attachment from input tray
+      setAttachments((prev) => prev.filter((a) => a.id !== media.id));
+    } catch (err: any) {
+      console.error('Media analysis error:', err);
+      const errorMessage = `عذراً، تعذر إتمام تحليل الملف: ${err.message || 'حدث خطأ غير متوقع'}`;
+      const finalErrorAssistant: ChatMessage = {
+        ...assistantLoadingMessage,
+        content: errorMessage,
+        confidence: 'limited_support',
+      };
+      const finalErrorMessages: ChatMessage[] = [
+        ...messages,
+        userMessage,
+        finalErrorAssistant,
+      ];
+      setMessages(finalErrorMessages);
+      const updatedSessions = updateSessionMessages(activeId, finalErrorMessages, activeLang);
+      setSessions(updatedSessions);
+    } finally {
+      setAnalyzingMediaId(null);
+      setMediaAnalysisBanner(null);
+    }
+  };
+
+  const handleOcrFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const media = await readFileAsAttachedMedia(file);
+    handleAddAttachment(media);
+    await handleTriggerMediaAnalysis(media, 'extract_text');
+    e.target.value = '';
+  };
+
+  const handleBookFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const media = await readFileAsAttachedMedia(file);
+    handleAddAttachment(media);
+    await handleTriggerMediaAnalysis(media, 'summarize_book');
+    e.target.value = '';
+  };
+
+  const activePluginsCount = plugins.filter((p) => p.enabled).length;
+
+  const smartSuggestions: SmartSuggestionItem[] = getSmartExplorations(activeLang);
+  const isInitialWelcome = messages.length <= 1 && messages[0]?.role === 'assistant';
 
   return (
-    <div className="flex flex-col h-[calc(100vh-60px-58px)] md:h-[calc(100vh-60px-48px)] max-w-4xl mx-auto w-full relative">
-      {/* Top Header: Session History & Persona Controls */}
-      <div className="bg-slate-900 border-b border-slate-800 p-2 sm:px-4 shrink-0 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-        <div className="flex items-center gap-2 flex-wrap">
+    <div className="flex-1 flex flex-col h-full bg-[#FAF6EE] dark:bg-slate-950 overflow-hidden relative">
+      {/* 1. Executive Minimalist Control Header */}
+      <div className="bg-white/80 dark:bg-slate-900/80 backdrop-blur-md border-b border-[#E2D5BE] dark:border-slate-800 px-3 sm:px-6 py-2.5 flex items-center justify-between gap-2 shrink-0 z-20">
+        <div className="flex items-center gap-1.5 sm:gap-2">
           {/* History Drawer Toggle Button */}
           <button
             type="button"
             onClick={() => setIsSidebarOpen(true)}
-            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-slate-800/90 hover:bg-slate-750 text-slate-200 border border-slate-700/80 hover:border-emerald-500/50 text-xs font-bold transition-all shadow-sm active:scale-95 cursor-pointer"
-            title="فتح سجل المحادثات السابقة"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white dark:bg-slate-850 hover:bg-[#F3EAD8] dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 text-xs font-bold border border-[#E2D5BE] dark:border-slate-750 transition-all shadow-2xs cursor-pointer min-h-[36px]"
+            title="سجل الجلسات السابقة والمحفوظات"
+            aria-label="سجل المحادثات"
           >
-            <History className="w-3.5 h-3.5 text-emerald-400" />
-            <span className="inline">السجل</span>
-            <span className="text-[10px] bg-emerald-500/20 text-emerald-300 px-1.5 py-0.2 rounded-full border border-emerald-500/30 font-bold">
-              {sessions.length}
-            </span>
+            <History className="w-4 h-4 text-sky-600 dark:text-amber-400" />
+            <span className="hidden sm:inline">السجل</span>
+            {sessions.length > 0 && (
+              <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300 font-mono">
+                {sessions.length}
+              </span>
+            )}
           </button>
 
-          {/* New Chat Quick Button */}
+          {/* New Chat Button */}
           <button
             type="button"
             onClick={handleStartNewSession}
-            className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold transition-all shadow-sm active:scale-95 cursor-pointer"
+            className="flex items-center gap-1 px-3 py-1.5 rounded-xl bg-gradient-to-r from-emerald-600 to-sky-700 hover:from-emerald-500 hover:to-sky-600 text-white text-xs font-bold transition-all shadow-xs active:scale-95 cursor-pointer min-h-[36px]"
             title="بدء محادثة جديدة"
           >
-            <Plus className="w-3.5 h-3.5" />
-            <span className="hidden xs:inline">محادثة جديدة</span>
+            <Plus className="w-4 h-4" />
+            <span className="hidden sm:inline">محادثة جديدة</span>
           </button>
 
-          {/* Active Session Title Preview Pill */}
-          {currentSession && (
-            <button
-              type="button"
-              onClick={() => setIsSidebarOpen(true)}
-              className="hidden lg:flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-950/70 border border-slate-800 text-[11px] text-slate-400 hover:text-emerald-300 hover:border-emerald-500/40 cursor-pointer max-w-[160px] truncate transition-colors"
-              title={`المحادثة الحالية: ${currentSession.title} (اضغط لفتح السجل)`}
-            >
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0"></span>
-              <span className="truncate">{currentSession.title}</span>
-            </button>
-          )}
-
-          {/* Persona Mode Switcher */}
-          <div className="inline-flex rounded-xl bg-slate-950 p-1 border border-slate-800">
-            <button
-              type="button"
-              onClick={() => {
-                setPersonaMode('hassaniya_expert');
-                if (currentSessionId) {
-                  const updated = sessions.map((s) =>
-                    s.id === currentSessionId ? { ...s, personaMode: 'hassaniya_expert' as const } : s
-                  );
-                  setSessions(updated);
-                  saveSessions(updated);
-                }
-              }}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
-                personaMode === 'hassaniya_expert'
-                  ? 'bg-gradient-to-r from-emerald-600 to-amber-600 text-white shadow-md'
-                  : 'text-slate-400 hover:text-slate-200'
-              }`}
-            >
-              <span>🇲🇷</span>
-              <span>مستشار الحسانية</span>
-              <span className="text-[10px] bg-amber-400/20 text-amber-200 px-1.5 py-0.2 rounded-full border border-amber-400/30 hidden xs:inline">
-                أصيل
-              </span>
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                setPersonaMode('general');
-                if (currentSessionId) {
-                  const updated = sessions.map((s) =>
-                    s.id === currentSessionId ? { ...s, personaMode: 'general' as const } : s
-                  );
-                  setSessions(updated);
-                  saveSessions(updated);
-                }
-              }}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
-                personaMode === 'general'
-                  ? 'bg-slate-800 text-white shadow-md'
-                  : 'text-slate-400 hover:text-slate-200'
-              }`}
-            >
-              <Compass className="w-3.5 h-3.5" />
-              <span>المساعد العام</span>
-            </button>
-          </div>
+          {/* Plugins Hub Button (🧩 الإضافات) */}
+          <button
+            type="button"
+            onClick={() => setIsPluginsModalOpen(true)}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white dark:bg-slate-850 hover:bg-sky-50 dark:hover:bg-slate-800 text-slate-750 dark:text-slate-200 text-xs font-bold border border-[#E2D5BE] dark:border-slate-750 transition-all shadow-2xs cursor-pointer min-h-[36px]"
+            title="مركز الإضافات والبلجنز الذكية"
+          >
+            <Puzzle className="w-4 h-4 text-sky-600 dark:text-sky-400" />
+            <span className="hidden md:inline">الإضافات</span>
+            <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-sky-100 dark:bg-sky-950 text-sky-700 dark:text-sky-300 font-mono font-bold">
+              {activePluginsCount}
+            </span>
+          </button>
         </div>
 
-        {personaMode === 'hassaniya_expert' && (
-          <div className="flex items-center justify-between sm:justify-end gap-2 text-xs">
-            <span className="text-slate-400 text-[11px] hidden xl:inline">
-              لسان البيظان • تحايا • أمثال • ترجمة ثلاثية
-            </span>
+        {/* Center / Right Controls: Dual Thinking Mode Switcher + Dynamic Language */}
+        <div className="flex items-center gap-2">
+          {/* Dual Thinking Mode Switcher (⚡ سريع vs 🧠 عميق) */}
+          <div className="flex items-center bg-[#F3EAD8] dark:bg-slate-850 p-0.5 rounded-xl border border-[#E2D5BE] dark:border-slate-750 text-xs">
             <button
               type="button"
-              onClick={() => setShowFlowMenu(!showFlowMenu)}
-              className={`px-2.5 py-1 rounded-lg border text-[11px] font-semibold transition-colors flex items-center gap-1 ${
-                showFlowMenu
-                  ? 'bg-amber-950/50 border-amber-500/40 text-amber-300'
-                  : 'bg-slate-800 border-slate-700 text-slate-300 hover:text-white'
+              onClick={() => setThinkingMode('fast')}
+              className={`flex items-center gap-1 px-2.5 py-1 rounded-lg font-bold transition-all cursor-pointer ${
+                thinkingMode === 'fast'
+                  ? 'bg-white dark:bg-slate-700 text-amber-700 dark:text-amber-400 shadow-2xs'
+                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
               }`}
+              title="التفكير السريع والرد التلقائي الفوري"
             >
-              <Sparkles className="w-3 h-3 text-amber-400" />
-              <span>{showFlowMenu ? 'إخفاء مسارات الحسانية' : 'استعراض مواضيع الحسانية'}</span>
+              <Zap className="w-3.5 h-3.5 text-amber-500 fill-amber-500" />
+              <span className="hidden sm:inline">سريع</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setThinkingMode('deep')}
+              className={`flex items-center gap-1 px-2.5 py-1 rounded-lg font-bold transition-all cursor-pointer ${
+                thinkingMode === 'deep'
+                  ? 'bg-sky-600 text-white shadow-2xs'
+                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
+              }`}
+              title="التفكير المنطقي والبحث العميق مع خطوات التحليل"
+            >
+              <Brain className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">تفكير عميق</span>
             </button>
           </div>
-        )}
+
+          {/* Dynamic Real-Time Language Adaptation Badge */}
+          <div
+            className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-50 dark:bg-slate-800/90 border border-amber-300/80 dark:border-amber-500/30 text-amber-900 dark:text-amber-300 text-xs font-bold shadow-2xs transition-all min-h-[34px]"
+            title="يتكيف لحاذگ تلقائياً مع لغة رسالتك فورياً دون الحاجة لتغيير الإعدادات"
+          >
+            <Radio className="w-3 h-3 text-emerald-600 dark:text-emerald-400 animate-pulse" />
+            <span className="hidden xs:inline">
+              {activeLang === 'hassaniya' && 'حسانية 🇲🇷'}
+              {activeLang === 'french' && 'Français 🇫🇷'}
+              {activeLang === 'arabic' && 'عربية 🇸🇦'}
+            </span>
+          </div>
+
+          {/* Share Full Session Button */}
+          <button
+            type="button"
+            onClick={handleOpenShareSession}
+            className="p-1.5 rounded-xl text-slate-500 dark:text-slate-400 hover:bg-[#F4ECDD] dark:hover:bg-slate-800 hover:text-slate-800 dark:text-slate-200 transition-colors cursor-pointer"
+            title="مشاركة هذه المحادثة"
+          >
+            <Share2 className="w-4 h-4" />
+          </button>
+        </div>
       </div>
 
-      {/* Hassaniya Specialized Conversation Flow Navigator Banner */}
-      {personaMode === 'hassaniya_expert' && showFlowMenu && (
-        <div className="bg-gradient-to-b from-slate-900 to-slate-950 border-b border-amber-600/20 p-2.5 sm:p-3 shrink-0 space-y-2 animate-fadeIn">
-          {/* Category Tabs */}
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5">
-            {HASSANIYA_FLOW_CATEGORIES.map((category) => {
-              const Icon = category.icon;
-              const isActive = activeFlowCategory === category.id;
-              return (
-                <button
-                  key={category.id}
-                  type="button"
-                  onClick={() => setActiveFlowCategory(category.id)}
-                  className={`p-2 rounded-xl border text-right transition-all flex items-center gap-2 ${
-                    isActive
-                      ? 'bg-amber-950/60 border-amber-500/80 text-amber-200 shadow-sm ring-1 ring-amber-500/20'
-                      : 'bg-slate-900/80 border-slate-800/80 text-slate-400 hover:text-slate-200 hover:bg-slate-850'
-                  }`}
-                >
-                  <div
-                    className={`p-1.5 rounded-lg shrink-0 ${
-                      isActive ? 'bg-amber-500 text-slate-950' : 'bg-slate-800 text-amber-400'
-                    }`}
-                  >
-                    <Icon className="w-3.5 h-3.5" />
-                  </div>
-                  <div className="min-w-0">
-                    <p className="text-xs font-bold truncate">{category.label}</p>
-                  </div>
-                </button>
-              );
-            })}
-          </div>
+      {/* Quick Navigation Portals Bar */}
+      <QuickPortalsBar
+        onOpenPortal={(portalId) => {
+          setActivePortalId(portalId);
+          setIsPortalsModalOpen(true);
+        }}
+      />
 
-          {/* Quick Flow Prompt Chips for Active Category */}
-          <div className="flex items-center gap-1.5 overflow-x-auto scrollbar-none py-1">
-            {currentCategory.prompts.map((p, idx) => (
-              <button
-                key={idx}
-                type="button"
-                onClick={() => handleSend(p.text)}
-                className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-slate-900 hover:bg-amber-950/50 border border-slate-800 hover:border-amber-500/40 text-xs text-slate-200 hover:text-amber-200 transition-all shadow-sm shrink-0 group text-right"
-                title={p.text}
-              >
-                <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 font-semibold border border-amber-500/30">
-                  {p.tag}
-                </span>
-                <span className="font-medium group-hover:underline underline-offset-2">
-                  {p.title}
-                </span>
-              </button>
-            ))}
-          </div>
+      {/* Dynamic Language Switch Toast Notice */}
+      {languageFeedbackToast && (
+        <div className="absolute top-24 left-1/2 -translate-x-1/2 z-30 bg-slate-900/95 text-white text-xs px-4 py-2 rounded-full shadow-lg border border-amber-500/40 flex items-center gap-2 animate-bounce">
+          <span className="text-base">{languageFeedbackToast.flag}</span>
+          <span>تم التكيف الذكي فوراً مع: <strong>{languageFeedbackToast.langName}</strong></span>
         </div>
       )}
 
-      {/* Top Language Notice if community language */}
-      {isLimitedLanguage && (
-        <div className="bg-blue-950/70 border-b border-blue-800/60 p-2.5 px-4 text-xs text-blue-200 flex items-center justify-between gap-2 shrink-0">
-          <div className="flex items-center gap-2">
-            <AlertCircle className="w-4 h-4 text-blue-400 shrink-0" />
-            <span>
-              لغة <strong>{currentLanguage.nameNative}</strong> مدعومة بمستوى أساسي ومستمرة في التطور عبر القاموس المجتمعي.
+      {/* Phonetic Speech Correction Notification Banner */}
+      {lastCorrection && lastCorrection.appliedCorrections.length > 0 && (
+        <div className="bg-emerald-50 dark:bg-emerald-950/60 border-b border-emerald-300 dark:border-emerald-800/60 px-4 py-1.5 text-xs text-emerald-900 dark:text-emerald-200 flex items-center justify-between gap-2 shrink-0 animate-fadeIn">
+          <div className="flex items-center gap-2 truncate">
+            <Wand2 className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 shrink-0" />
+            <span className="font-semibold">تصحيح صوتي ذكي للفظ الحساني:</span>
+            <span className="truncate">
+              {lastCorrection.appliedCorrections.map((c) => `"${c.original}" ➔ "${c.corrected}"`).join(' ، ')}
             </span>
           </div>
-          <span className="text-[10px] bg-blue-800/60 text-blue-200 px-2 py-0.5 rounded shrink-0">
-            أمانة معرفية
-          </span>
+          <button
+            type="button"
+            onClick={() => setLastCorrection(null)}
+            className="text-emerald-700 dark:text-emerald-300 hover:underline shrink-0 text-[11px] cursor-pointer"
+          >
+            إغلاق
+          </button>
         </div>
       )}
 
-      {/* Messages Scroll Area */}
-      <div className="flex-1 overflow-y-auto p-3 sm:p-5 space-y-4">
-        {messages.map((message) => {
+      {/* 2. Messages Scroll Area */}
+      <div className="flex-1 overflow-y-auto px-3 py-4 sm:px-6 space-y-4">
+        {/* Welcome & Smart Exploration Hub (Rendered on empty/initial state) */}
+        {isInitialWelcome && (
+          <div className="max-w-2xl mx-auto my-6 space-y-6 animate-fadeIn">
+            <div className="bg-gradient-to-br from-white via-amber-50/50 to-emerald-50/30 dark:from-slate-900 dark:via-slate-900/90 dark:to-emerald-950/20 rounded-3xl p-6 sm:p-8 border border-[#E5DAC4] dark:border-slate-800 shadow-xs text-center space-y-3">
+              <div className="w-14 h-14 mx-auto rounded-2xl bg-gradient-to-tr from-sky-600 to-emerald-600 text-white flex items-center justify-center text-3xl shadow-md shadow-sky-900/10">
+                🇲🇷
+              </div>
+              <h2 className="text-xl sm:text-2xl font-black text-slate-900 dark:text-white tracking-tight">
+                مرحبتي بيك في <span className="text-sky-700 dark:text-sky-400 font-mono">لحاذگ AI</span>
+              </h2>
+              <p className="text-xs sm:text-sm text-slate-600 dark:text-slate-300 max-w-lg mx-auto leading-relaxed">
+                منصة الذكاء الاصطناعي الشاملة للشباب الموريتاني. محادثة ذكية، استفسار عن الصفقات والتمويلات، فحص الكتب والمستندات، وتفكير تحليلي متقدم.
+              </p>
+            </div>
+
+            {/* "هل تبحث عن...؟" Smart Suggestions & Quick Alternatives */}
+            <div className="space-y-3">
+              <div className="flex items-center gap-2 px-1">
+                <Sparkles className="w-4 h-4 text-amber-500" />
+                <h3 className="text-xs sm:text-sm font-bold text-slate-700 dark:text-slate-300">
+                  هل تبحث عن...؟ (اقتراحات استكشاف ذكية)
+                </h3>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                {smartSuggestions.map((item) => (
+                  <button
+                    key={item.id}
+                    type="button"
+                    onClick={() => handleSend(item.query)}
+                    className="p-3 rounded-2xl bg-white dark:bg-slate-900 hover:bg-amber-50/80 dark:hover:bg-slate-850 border border-[#E5DAC4] dark:border-slate-800 hover:border-amber-400 dark:hover:border-amber-500/50 text-right transition-all group shadow-2xs cursor-pointer flex items-start gap-2.5"
+                  >
+                    <span className="text-lg p-1.5 rounded-xl bg-amber-500/10 dark:bg-amber-400/10 shrink-0">
+                      {item.icon}
+                    </span>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center justify-between gap-1">
+                        <span className="text-xs font-bold text-slate-900 dark:text-white group-hover:text-sky-700 dark:group-hover:text-sky-300 transition-colors">
+                          {item.label}
+                        </span>
+                        <ArrowRight className="w-3 h-3 text-slate-400 group-hover:text-sky-600 dark:group-hover:text-sky-400 transform -scale-x-100 transition-transform group-hover:translate-x-0.5" />
+                      </div>
+                      <p className="text-[11px] text-slate-500 dark:text-slate-400 line-clamp-2 mt-0.5 leading-relaxed">
+                        {item.query}
+                      </p>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Message Thread */}
+        {messages.map((message, idx) => {
           const isUser = message.role === 'user';
-          const parsed = !isUser ? parseTranslationContent(message.content) : { isTranslation: false };
+          const isFrench = message.language === 'french';
+          const textDir = isFrench ? 'ltr' : 'rtl';
+          const isLastMessage = idx === messages.length - 1;
+
+          // Parse thinking content for assistant message
+          const { thinkingText, mainContent } = !isUser
+            ? parseMessageContent(message.content)
+            : { thinkingText: undefined, mainContent: message.content };
 
           return (
             <div
               key={message.id}
-              className={`flex items-start gap-2.5 ${isUser ? 'flex-row-reverse' : 'flex-row'}`}
+              className={`flex items-start gap-2.5 sm:gap-3 ${isUser ? 'flex-row-reverse' : 'flex-row'} max-w-3xl mx-auto`}
             >
               {/* Avatar */}
               <div
-                className={`w-8 h-8 rounded-xl flex items-center justify-center shrink-0 shadow-md ${
+                className={`w-8 h-8 rounded-xl flex items-center justify-center shrink-0 shadow-xs text-xs font-bold ${
                   isUser
-                    ? 'bg-amber-600 text-white'
-                    : 'bg-emerald-700 text-white border border-emerald-500/30'
+                    ? 'bg-sky-600 text-white'
+                    : 'bg-gradient-to-br from-emerald-600 to-sky-700 text-white'
                 }`}
               >
                 {isUser ? <User className="w-4 h-4" /> : <Bot className="w-4 h-4" />}
               </div>
 
-              {/* Bubble */}
+              {/* Message Bubble */}
               <div
-                className={`max-w-[90%] sm:max-w-[82%] rounded-2xl p-3.5 sm:p-4 shadow-md relative group ${
+                className={`flex-1 min-w-0 rounded-2xl p-3.5 sm:p-4 text-xs sm:text-sm leading-relaxed shadow-xs transition-colors ${
                   isUser
-                    ? 'bg-emerald-600 text-white rounded-tr-none'
-                    : 'bg-slate-900/90 text-slate-100 border border-slate-800 rounded-tl-none'
+                    ? 'bg-sky-600 text-white rounded-tr-none'
+                    : 'bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 border border-[#E5DAC4] dark:border-slate-800 rounded-tl-none'
                 }`}
+                dir={textDir}
               >
-                {/* Content: Either Structured Translation or Regular Chat Message */}
-                {parsed.isTranslation ? (
-                  <div className="space-y-3 font-sans" dir="rtl">
-                    {parsed.intro && (
-                      <p className="text-xs sm:text-sm text-slate-300 font-medium pb-1 border-b border-slate-800">
-                        {parsed.intro}
-                      </p>
+                {/* Bubble Header / Tag */}
+                <div className="flex items-center justify-between gap-2 mb-2 text-[10px] opacity-80">
+                  <span className="font-semibold flex items-center gap-1.5">
+                    <span>{isUser ? 'أنت' : 'لحاذگ AI'}</span>
+                    {message.thinkingMode === 'deep' && (
+                      <span className="px-1.5 py-0.2 rounded bg-black/10 dark:bg-white/10 font-bold flex items-center gap-1">
+                        <Brain className="w-2.5 h-2.5" />
+                        بحث عميق
+                      </span>
                     )}
-
-                    {/* Hassaniya Block */}
-                    {parsed.hassaniya && (
-                      <div className="bg-emerald-950/40 border border-emerald-500/30 rounded-xl p-3 space-y-1 relative group/block">
-                        <div className="flex items-center justify-between text-xs font-bold text-emerald-400">
-                          <span className="flex items-center gap-1.5">
-                            <span>🇲🇷</span>
-                            <span>باللهجة الحسانية (Hassaniya):</span>
-                          </span>
-                          <div className="flex items-center gap-1 opacity-80 group-hover/block:opacity-100 transition-opacity">
-                            <button
-                              type="button"
-                              onClick={() => handleCopy(`has-${message.id}`, parsed.hassaniya!)}
-                              className="p-1 hover:text-white rounded"
-                              title="نسخ العبارة الحسانية"
-                            >
-                              {copiedId === `has-${message.id}` ? (
-                                <Check className="w-3.5 h-3.5 text-emerald-300" />
-                              ) : (
-                                <Copy className="w-3.5 h-3.5" />
-                              )}
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => handleSpeak(parsed.hassaniya!, 'ar-SA')}
-                              className="p-1 hover:text-white rounded"
-                              title="نطق بالحسانية"
-                            >
-                              <Volume2 className="w-3.5 h-3.5" />
-                            </button>
-                          </div>
-                        </div>
-                        <p className="text-sm font-bold text-emerald-100 leading-relaxed pt-0.5">
-                          {parsed.hassaniya}
-                        </p>
-                      </div>
+                  </span>
+                  <div className="flex items-center gap-1.5">
+                    {message.language && (
+                      <span className="px-1.5 py-0.2 rounded bg-black/10 dark:bg-white/10 font-bold">
+                        {message.language === 'hassaniya' && '🇲🇷 حسانية'}
+                        {message.language === 'french' && '🇫🇷 Français'}
+                        {message.language === 'arabic' && '🇸🇦 عربية'}
+                      </span>
                     )}
-
-                    {/* Standard Arabic Block */}
-                    {parsed.arabic && (
-                      <div className="bg-amber-950/30 border border-amber-500/30 rounded-xl p-3 space-y-1 relative group/block">
-                        <div className="flex items-center justify-between text-xs font-bold text-amber-400">
-                          <span className="flex items-center gap-1.5">
-                            <span>📖</span>
-                            <span>بالعربية الفصحى (Arabe Standard):</span>
-                          </span>
-                          <div className="flex items-center gap-1 opacity-80 group-hover/block:opacity-100 transition-opacity">
-                            <button
-                              type="button"
-                              onClick={() => handleCopy(`ar-${message.id}`, parsed.arabic!)}
-                              className="p-1 hover:text-white rounded"
-                              title="نسخ العبارة العربية"
-                            >
-                              {copiedId === `ar-${message.id}` ? (
-                                <Check className="w-3.5 h-3.5 text-amber-300" />
-                              ) : (
-                                <Copy className="w-3.5 h-3.5" />
-                              )}
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => handleSpeak(parsed.arabic!, 'ar-SA')}
-                              className="p-1 hover:text-white rounded"
-                              title="نطق بالعربية"
-                            >
-                              <Volume2 className="w-3.5 h-3.5" />
-                            </button>
-                          </div>
-                        </div>
-                        <p className="text-sm text-amber-100 leading-relaxed pt-0.5">
-                          {parsed.arabic}
-                        </p>
-                      </div>
-                    )}
-
-                    {/* French Block */}
-                    {parsed.french && (
-                      <div
-                        className="bg-indigo-950/30 border border-indigo-500/30 rounded-xl p-3 space-y-1 relative group/block"
-                        dir="ltr"
-                      >
-                        <div className="flex items-center justify-between text-xs font-bold text-indigo-300">
-                          <span className="flex items-center gap-1.5">
-                            <span>🇫🇷</span>
-                            <span>En Français:</span>
-                          </span>
-                          <div className="flex items-center gap-1 opacity-80 group-hover/block:opacity-100 transition-opacity">
-                            <button
-                              type="button"
-                              onClick={() => handleCopy(`fr-${message.id}`, parsed.french!)}
-                              className="p-1 hover:text-white rounded"
-                              title="Copier le texte français"
-                            >
-                              {copiedId === `fr-${message.id}` ? (
-                                <Check className="w-3.5 h-3.5 text-indigo-300" />
-                              ) : (
-                                <Copy className="w-3.5 h-3.5" />
-                              )}
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => handleSpeak(parsed.french!, 'fr-FR')}
-                              className="p-1 hover:text-white rounded"
-                              title="Écouter en français"
-                            >
-                              <Volume2 className="w-3.5 h-3.5" />
-                            </button>
-                          </div>
-                        </div>
-                        <p className="text-sm text-indigo-100 leading-relaxed font-sans pt-0.5">
-                          {parsed.french}
-                        </p>
-                      </div>
-                    )}
-
-                    {/* Cultural / Idiomatic Note Block */}
-                    {parsed.culturalNote && (
-                      <div className="bg-slate-950/80 border border-slate-700/60 rounded-xl p-3 space-y-1">
-                        <div className="text-xs font-bold text-amber-300 flex items-center gap-1.5">
-                          <span>💡</span>
-                          <span>السياق والملاحظة الثقافية الموريتانية:</span>
-                        </div>
-                        <p className="text-xs text-slate-300 leading-relaxed pt-0.5">
-                          {parsed.culturalNote}
-                        </p>
-                      </div>
-                    )}
+                    <span>{message.timestamp}</span>
                   </div>
-                ) : (
-                  <div className="text-sm leading-relaxed whitespace-pre-wrap font-sans">
-                    {message.content}
+                </div>
+
+                {/* Render Attached Media in User Message */}
+                {isUser && message.attachments && message.attachments.length > 0 && (
+                  <div className="mb-3 flex items-center gap-2 flex-wrap">
+                    {message.attachments.map((att) => (
+                      <div
+                        key={att.id}
+                        className="flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-white/20 text-white text-[11px] border border-white/30 backdrop-blur-xs"
+                      >
+                        {att.previewUrl ? (
+                          <img
+                            src={att.previewUrl}
+                            alt={att.name}
+                            className="w-4 h-4 rounded object-cover"
+                          />
+                        ) : att.type === 'video' ? (
+                          <Video className="w-3.5 h-3.5" />
+                        ) : (
+                          <FileText className="w-3.5 h-3.5" />
+                        )}
+                        <span className="max-w-[120px] truncate font-medium">{att.name}</span>
+                      </div>
+                    ))}
                   </div>
                 )}
 
-                {/* Footer info & quick actions */}
-                <div
-                  className={`flex items-center gap-2 mt-2 pt-1 border-t text-[11px] ${
-                    isUser
-                      ? 'border-emerald-500/40 text-emerald-200 justify-end'
-                      : 'border-slate-800 text-slate-400 justify-between'
-                  }`}
-                >
-                  <span className="text-[10px]">{message.timestamp}</span>
+                {/* Render Thinking Block (Deep Reasoning Steps) */}
+                {!isUser && thinkingText && (
+                  <ThinkingBlock
+                    thinkingText={thinkingText}
+                    isStreaming={isLoading && isLastMessage}
+                  />
+                )}
 
-                  {!isUser && (
+                {/* Message Body */}
+                <div className="whitespace-pre-wrap break-words leading-relaxed">
+                  {mainContent || (
+                    <span className="inline-flex items-center gap-1.5 text-slate-400 dark:text-slate-500 italic">
+                      <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-ping"></span>
+                      جاري صياغة الرد المباشر...
+                    </span>
+                  )}
+                </div>
+
+                {/* Assistant Message Actions */}
+                {!isUser && message.content && (
+                  <div className="mt-3 pt-2.5 border-t border-[#EAE0CD] dark:border-slate-800/80 flex items-center justify-between gap-2">
                     <div className="flex items-center gap-1">
+                      {/* Copy */}
                       <button
-                        onClick={() => handleCopy(message.id, message.content)}
-                        className="p-1 hover:text-white rounded transition-colors"
-                        title="نسخ الرد كاملاً"
+                        type="button"
+                        onClick={() => handleCopy(message.id, mainContent || message.content)}
+                        className="p-1.5 rounded-lg text-slate-500 dark:text-slate-400 hover:bg-[#F4ECDD] dark:hover:bg-slate-800 hover:text-slate-800 dark:text-slate-200 transition-colors cursor-pointer"
+                        title="نسخ النص"
                       >
                         {copiedId === message.id ? (
-                          <Check className="w-3.5 h-3.5 text-emerald-400" />
+                          <Check className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
                         ) : (
                           <Copy className="w-3.5 h-3.5" />
                         )}
                       </button>
-                      {'speechSynthesis' in window && (
-                        <button
-                          onClick={() => handleSpeak(message.content)}
-                          className="p-1 hover:text-white rounded transition-colors"
-                          title="قراءة صوتية"
-                        >
-                          <Volume2 className="w-3.5 h-3.5" />
-                        </button>
-                      )}
+
+                      {/* Text to Speech */}
+                      <button
+                        type="button"
+                        onClick={() => handleSpeak(mainContent || message.content, message.language)}
+                        className="p-1.5 rounded-lg text-slate-500 dark:text-slate-400 hover:bg-[#F4ECDD] dark:hover:bg-slate-800 hover:text-slate-800 dark:text-slate-200 transition-colors cursor-pointer"
+                        title="قراءة صوتية"
+                      >
+                        <Volume2 className="w-3.5 h-3.5" />
+                      </button>
+
+                      {/* Share Single Message */}
+                      <button
+                        type="button"
+                        onClick={() => handleOpenShareMessage(message)}
+                        className="p-1.5 rounded-lg text-slate-500 dark:text-slate-400 hover:bg-[#F4ECDD] dark:hover:bg-slate-800 hover:text-slate-800 dark:text-slate-200 transition-colors cursor-pointer"
+                        title="مشاركة هذا الرد"
+                      >
+                        <Share2 className="w-3.5 h-3.5" />
+                      </button>
                     </div>
-                  )}
-                </div>
+
+                    <span className="text-[10px] text-slate-400 dark:text-slate-500 font-mono">
+                      {message.confidence === 'high' ? 'مضبوط وموثوق' : 'إجابة مباشرة'}
+                    </span>
+                  </div>
+                )}
               </div>
             </div>
           );
         })}
 
-        {/* Loading Indicator */}
-        {isLoading && (
-          <div className="flex items-start gap-2.5">
-            <div className="w-8 h-8 rounded-xl bg-emerald-700 text-white flex items-center justify-center shrink-0 border border-emerald-500/30 shadow-md">
-              <Sparkles className="w-4 h-4 animate-spin text-amber-300" />
+        {/* Dynamic Contextual Exploration Bar ("هل تبحث عن...؟") below thread */}
+        {!isInitialWelcome && !isLoading && smartSuggestions.length > 0 && (
+          <div className="max-w-3xl mx-auto pt-2 space-y-1.5 animate-fadeIn">
+            <div className="flex items-center gap-1 text-[11px] font-bold text-slate-500 dark:text-slate-400 px-1">
+              <HelpCircle className="w-3 h-3 text-amber-500" />
+              <span>هل تبحث عن...؟</span>
             </div>
-            <div className="bg-slate-900 border border-slate-800 rounded-2xl rounded-tl-none px-4 py-3 shadow-md">
-              <div className="flex items-center gap-2 text-xs text-amber-300 font-medium">
-                <span className="w-2 h-2 rounded-full bg-amber-400 animate-ping"></span>
-                <span>
-                  {personaMode === 'hassaniya_expert'
-                    ? '"لحاذگ الحساني" يفكّر ويصيغ الرد الموريتاني الأصيل الشور الشور...'
-                    : '"لحاذگ" يعالج إجابتك الآن...'}
-                </span>
-              </div>
+            <div className="flex items-center gap-1.5 overflow-x-auto scrollbar-none pb-1">
+              {smartSuggestions.slice(0, 3).map((item) => (
+                <button
+                  key={item.id}
+                  type="button"
+                  onClick={() => handleSend(item.query)}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white dark:bg-slate-900 hover:bg-amber-50 dark:hover:bg-slate-800 border border-[#E5DAC4] dark:border-slate-800 hover:border-amber-400 text-xs text-slate-700 dark:text-slate-300 hover:text-sky-700 dark:hover:text-sky-300 transition-all shadow-xs shrink-0 cursor-pointer"
+                >
+                  <span>{item.icon}</span>
+                  <span className="font-semibold">{item.label}</span>
+                </button>
+              ))}
             </div>
           </div>
         )}
@@ -1253,333 +1177,297 @@ export const ChatView: React.FC<ChatViewProps> = ({ currentLanguage, onSelectLan
         <div ref={messagesEndRef} />
       </div>
 
-      {/* Suggested Quick Prompt Chips (when few messages and flow menu hidden) */}
-      {messages.length <= 3 && !isLoading && !showFlowMenu && (
-        <div className="px-3 sm:px-4 py-1.5 shrink-0 overflow-x-auto scrollbar-none">
-          <div className="flex items-center gap-1.5 min-w-max">
-            {GENERAL_PROMPTS.map((p, idx) => (
-              <button
-                key={idx}
-                onClick={() => handleSend(p.text)}
-                type="button"
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-slate-800/90 hover:bg-emerald-950/70 border border-slate-700/70 hover:border-emerald-600/50 text-slate-300 hover:text-emerald-300 text-xs transition-colors shadow-sm"
-              >
-                <span>{p.label}</span>
-              </button>
-            ))}
+      {/* 3. Voice Recording Active Overlay Bar */}
+      {isListening && (
+        <div className="bg-gradient-to-r from-red-600 via-rose-600 to-amber-600 text-white px-4 py-3 shrink-0 shadow-lg animate-fadeIn flex flex-col sm:flex-row items-center justify-between gap-3">
+          <div className="flex items-center gap-3 w-full sm:w-auto">
+            <div className="w-3 h-3 rounded-full bg-white animate-ping"></div>
+            {/* Animated Sound Waveform Bars */}
+            <div className="flex items-center gap-0.5 h-5">
+              <span className="w-1 bg-white rounded-full animate-bounce h-3"></span>
+              <span className="w-1 bg-white rounded-full animate-bounce h-5" style={{ animationDelay: '0.1s' }}></span>
+              <span className="w-1 bg-white rounded-full animate-bounce h-2" style={{ animationDelay: '0.2s' }}></span>
+              <span className="w-1 bg-white rounded-full animate-bounce h-4" style={{ animationDelay: '0.3s' }}></span>
+              <span className="w-1 bg-white rounded-full animate-bounce h-5" style={{ animationDelay: '0.15s' }}></span>
+            </div>
+            <div className="text-xs">
+              <p className="font-bold">استماع مباشر ({speechSeconds}ث) — تحدث بالحسانية أو الفرنسية</p>
+              <p className="text-[11px] opacity-90 truncate max-w-[260px] sm:max-w-md">
+                {interimTranscript || 'استشعار الصوت بدقة عالية...'}
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2 self-end sm:self-auto">
+            <button
+              type="button"
+              onClick={() => stopVoiceInput(false)}
+              className="px-3 py-1.5 rounded-xl bg-white/20 hover:bg-white/30 text-white text-xs font-bold transition-all cursor-pointer"
+            >
+              إيقاف ومراجعة
+            </button>
+            <button
+              type="button"
+              onClick={() => stopVoiceInput(true)}
+              className="px-3 py-1.5 rounded-xl bg-white text-red-600 hover:bg-white/90 text-xs font-bold shadow-md transition-all cursor-pointer flex items-center gap-1"
+            >
+              <Send className="w-3 h-3 rotate-180" />
+              <span>إرسال فوراً</span>
+            </button>
           </div>
         </div>
       )}
 
-      {/* Input Form Bar */}
-      <div className="p-2 sm:p-3 bg-slate-900/95 border-t border-slate-800 shrink-0">
-        {/* Automatic Language Detection & Switch Toast Alert */}
-        {langSwitchToast && langSwitchToast.show && (
-          <div
-            className="mb-2.5 p-3 rounded-2xl bg-gradient-to-r from-emerald-950/95 via-slate-900 to-teal-950/95 border border-emerald-500/50 shadow-xl flex items-center justify-between gap-3 animate-fadeIn backdrop-blur-sm"
-            dir="rtl"
-          >
-            <div className="flex items-center gap-2.5 min-w-0">
-              <div className="p-2 rounded-xl bg-emerald-500/20 text-emerald-400 shrink-0 border border-emerald-500/30">
-                <Languages className="w-4 h-4 animate-pulse" />
-              </div>
-              <div className="text-xs space-y-0.5 truncate">
-                <div className="flex items-center gap-1.5 flex-wrap">
-                  <span className="font-bold text-white">
-                    تم التبديل تلقائياً إلى:
-                  </span>
-                  <span className="px-2 py-0.5 rounded-full bg-emerald-500/30 text-emerald-300 font-semibold border border-emerald-400/40 text-[11px]">
-                    {langSwitchToast.detectedLangName}
-                  </span>
-                  {langSwitchToast.matchedKeywords && langSwitchToast.matchedKeywords.length > 0 && (
-                    <span className="text-[10px] text-slate-400 hidden sm:inline">
-                      (رُصدت: {langSwitchToast.matchedKeywords.slice(0, 3).join('، ')})
-                    </span>
-                  )}
-                </div>
-                <p className="text-[11px] text-slate-400">
-                  تم تكييف اتجاه الشاشة والمساعد ليتناسب مع لغة رسالتك.
-                </p>
-              </div>
-            </div>
-
-            <div className="flex items-center gap-2 shrink-0">
-              <button
-                type="button"
-                onClick={handleUndoLangSwitch}
-                className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-slate-800/90 hover:bg-slate-750 text-amber-300 hover:text-amber-200 text-xs font-semibold border border-amber-500/30 transition-colors cursor-pointer shadow-sm"
-                title={`الرجوع إلى ${langSwitchToast.previousLangName}`}
-              >
-                <RotateCcw className="w-3 h-3" />
-                <span>تراجع</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
-                  setLangSwitchToast(null);
-                }}
-                className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors cursor-pointer"
-                title="إغلاق التنبيه"
-              >
-                <X className="w-3.5 h-3.5" />
-              </button>
-            </div>
+      {/* Speech error toast */}
+      {speechError && (
+        <div className="bg-red-50 dark:bg-red-950/80 border-t border-red-300 dark:border-red-800 p-2 text-xs text-red-700 dark:text-red-300 flex items-center justify-between px-4">
+          <div className="flex items-center gap-1.5">
+            <AlertCircle className="w-4 h-4 shrink-0" />
+            <span>{speechError}</span>
           </div>
-        )}
-
-        {/* Speech Fallback Notification */}
-        {speechFallbackNotice && (
-          <div
-            className="mb-2 px-3 py-2 rounded-xl bg-amber-950/80 border border-amber-500/40 text-amber-200 text-xs flex items-center justify-between gap-2 animate-fadeIn"
-            dir="rtl"
+          <button
+            type="button"
+            onClick={() => setSpeechError(null)}
+            className="text-red-800 dark:text-red-200 font-bold hover:underline cursor-pointer"
           >
-            <div className="flex items-center gap-2">
-              <Info className="w-4 h-4 text-amber-400 shrink-0" />
-              <span>{speechFallbackNotice}</span>
-            </div>
-            <button
-              type="button"
-              onClick={() => setSpeechFallbackNotice(null)}
-              className="text-amber-400 hover:text-white p-1 rounded hover:bg-amber-900/50 cursor-pointer"
-              title="إغلاق"
-            >
-              <X className="w-3.5 h-3.5" />
-            </button>
-          </div>
-        )}
+            إغلاق
+          </button>
+        </div>
+      )}
 
-        {/* Speech Error Banner */}
-        {speechError && (
-          <div
-            className="mb-2 p-3 rounded-2xl bg-rose-950/90 border border-rose-500/50 text-rose-200 text-xs shadow-lg flex items-start justify-between gap-2 animate-fadeIn"
-            dir="rtl"
-          >
-            <div className="flex items-start gap-2.5">
-              <AlertCircle className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
-              <div className="space-y-1">
-                <p className="font-semibold text-rose-100">{speechError.message}</p>
-                {speechError.type === 'permission' && (
-                  <p className="text-[11px] text-rose-300">
-                    تلميح: اضغط على رمز القفل 🔒 في يسار أو يمين شريط العنوان ثم اختر "السماح بالميكروفون" ثم حدّث الصفحة.
-                  </p>
-                )}
-              </div>
-            </div>
-            <button
-              type="button"
-              onClick={() => setSpeechError(null)}
-              className="p-1 rounded-lg text-rose-400 hover:text-white hover:bg-rose-900/60 cursor-pointer"
-              title="إغلاق التنبيه"
-            >
-              <X className="w-3.5 h-3.5" />
-            </button>
-          </div>
-        )}
-
-        {/* Active Speech Recognition Dictation Banner */}
-        {isListening && (
-          <div
-            className="mb-2.5 p-3 sm:p-3.5 rounded-2xl bg-gradient-to-r from-rose-950/95 via-slate-900 to-amber-950/95 border-2 border-rose-500/60 shadow-2xl flex flex-col gap-2.5 animate-fadeIn"
-            dir="rtl"
-          >
-            {/* Top row: Status, Dialect selector, and Equalizer */}
-            <div className="flex flex-wrap items-center justify-between gap-2 pb-2 border-b border-slate-800/80">
-              <div className="flex items-center gap-2.5">
-                {/* Animated Equalizer soundwave */}
-                <div className="flex items-end gap-1 h-6 shrink-0 px-2 py-1 rounded-lg bg-rose-600/30 border border-rose-500/40">
-                  <span className="w-1 h-3 bg-rose-400 rounded-full animate-pulse"></span>
-                  <span className="w-1 h-5 bg-amber-400 rounded-full animate-bounce"></span>
-                  <span className="w-1 h-4 bg-emerald-400 rounded-full animate-pulse"></span>
-                  <span className="w-1 h-6 bg-rose-400 rounded-full animate-bounce"></span>
-                  <span className="w-1 h-2 bg-amber-400 rounded-full animate-pulse"></span>
-                </div>
-
-                <div className="flex items-center gap-2">
-                  <span className="text-xs font-bold text-white flex items-center gap-1.5">
-                    <span className="w-2 h-2 rounded-full bg-rose-500 animate-ping"></span>
-                    جاري الاستماع لصوتك
-                  </span>
-                </div>
-              </div>
-
-              {/* Dialect selector pills */}
-              <div className="flex items-center gap-1 bg-slate-950/80 p-1 rounded-xl border border-slate-800">
-                <span className="text-[10px] text-slate-400 px-1.5 hidden sm:inline">اللهجة:</span>
-                {SPEECH_DIALECT_OPTIONS.map((d) => {
-                  const isSelected = speechDialect === d.code;
-                  return (
-                    <button
-                      key={d.code}
-                      type="button"
-                      onClick={() => switchSpeechDialect(d.code as any)}
-                      className={`px-2 py-1 rounded-lg text-xs font-medium transition-all flex items-center gap-1 cursor-pointer ${
-                        isSelected
-                          ? 'bg-amber-500 text-slate-950 font-bold shadow'
-                          : 'text-slate-400 hover:text-white hover:bg-slate-800'
-                      }`}
-                      title={d.sub}
-                    >
-                      <span>{d.flag}</span>
-                      <span>{d.label.split(' ')[0]}</span>
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-
-            {/* Middle row: Live Transcription Box */}
-            <div className="p-2.5 rounded-xl bg-slate-950/80 border border-slate-800/80 min-h-[46px] flex items-center justify-between gap-3">
-              <div className="flex-1 min-w-0">
-                {interimTranscript ? (
-                  <p className="text-sm text-amber-300 font-semibold italic animate-pulse">
-                    "{interimTranscript}"
-                  </p>
-                ) : (
-                  <p className="text-xs text-slate-400 flex items-center gap-2">
-                    <span>تحدث الآن بوضوح بالحسانية أو العربية، وسيتم تدوين كلامك فوراً في حقل الرسالة...</span>
-                  </p>
-                )}
-              </div>
-
-              {input.trim() && (
-                <span className="text-[11px] text-emerald-400 font-medium px-2 py-0.5 rounded-full bg-emerald-950/70 border border-emerald-500/30 shrink-0">
-                  {input.trim().split(/\s+/).length} كلمة مدوّنة
+      {/* 4. Streamlined & Minimalist Unified Input Bar */}
+      <div className="bg-white dark:bg-slate-900 border-t border-[#E8DEC8] dark:border-slate-800 p-2.5 sm:p-4 shrink-0">
+        <div className="max-w-3xl mx-auto space-y-2">
+          {/* Analysis in Progress Notification Banner */}
+          {mediaAnalysisBanner && (
+            <div className="bg-gradient-to-r from-sky-600 to-indigo-700 text-white px-3.5 py-2 rounded-xl text-xs flex items-center justify-between shadow-xs animate-fadeIn">
+              <div className="flex items-center gap-2">
+                <Loader2 className="w-4 h-4 animate-spin text-white shrink-0" />
+                <span className="font-bold">
+                  {mediaAnalysisBanner.task === 'extract_text'
+                    ? `جاري استخراج وقراءة النصوص الضوئية من: "${mediaAnalysisBanner.fileName}"...`
+                    : mediaAnalysisBanner.task === 'summarize_book'
+                    ? `جاري دراسة وتلخيص محتوى الكتاب / المستند: "${mediaAnalysisBanner.fileName}"...`
+                    : `جاري فحص وتحليل محتوى الملف: "${mediaAnalysisBanner.fileName}"...`}
                 </span>
+              </div>
+              <span className="text-[10px] bg-white/20 px-2 py-0.5 rounded-full font-mono shrink-0">
+                لحاذگ AI Vision
+              </span>
+            </div>
+          )}
+
+          {/* Media Attachments Preview Bar */}
+          <MediaUploadBar
+            attachments={attachments}
+            onAddAttachment={handleAddAttachment}
+            onRemoveAttachment={handleRemoveAttachment}
+            onTriggerAnalysis={handleTriggerMediaAnalysis}
+            analyzingMediaId={analyzingMediaId}
+          />
+
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              handleSend();
+            }}
+            className="flex items-end gap-2"
+          >
+            {/* Dedicated 'إرفاق' Button & Smart Media Dropdown Popover */}
+            <div className="relative" ref={attachMenuRef}>
+              <button
+                type="button"
+                onClick={() => setIsAttachMenuOpen((prev) => !prev)}
+                className="px-3 sm:px-3.5 py-2.5 rounded-2xl bg-[#F4ECDD] dark:bg-slate-800 hover:bg-[#EBE0CD] dark:hover:bg-slate-750 text-slate-800 dark:text-slate-200 border border-[#E0D3BC] dark:border-slate-700 transition-all shadow-2xs cursor-pointer shrink-0 min-h-[46px] flex items-center gap-1.5 font-bold text-xs sm:text-sm group"
+                title="إرفاق وتحليل الصور، الكتب، والمستندات (OCR / تلخيص كتب)"
+                aria-label="إرفاق ملف أو صورة"
+              >
+                <Paperclip className="w-4 h-4 text-sky-600 dark:text-sky-400 group-hover:rotate-45 transition-transform" />
+                <span>إرفاق</span>
+                {attachments.length > 0 && (
+                  <span className="w-4 h-4 rounded-full bg-sky-600 text-white text-[10px] font-bold flex items-center justify-center">
+                    {attachments.length}
+                  </span>
+                )}
+              </button>
+
+              {/* Attach Dropdown Menu */}
+              {isAttachMenuOpen && (
+                <div className="absolute bottom-full mb-2 right-0 sm:right-auto sm:left-0 w-72 rounded-2xl bg-white dark:bg-slate-900 border border-[#E2D5BE] dark:border-slate-800 shadow-xl p-2 z-50 animate-scaleIn text-right space-y-1">
+                  <div className="px-3 py-1.5 text-[11px] font-bold text-slate-500 dark:text-slate-400 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
+                    <span>مركز إرفاق وتحليل الوسائط</span>
+                    <Sparkles className="w-3.5 h-3.5 text-amber-500" />
+                  </div>
+
+                  {/* Option 1: OCR Text Extraction from Image */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsAttachMenuOpen(false);
+                      ocrFileInputRef.current?.click();
+                    }}
+                    className="w-full p-2 rounded-xl hover:bg-sky-50 dark:hover:bg-sky-950/50 text-right flex items-start gap-2.5 transition-colors cursor-pointer group"
+                  >
+                    <div className="p-2 rounded-lg bg-sky-100 dark:bg-sky-900/50 text-sky-700 dark:text-sky-300 shrink-0 group-hover:scale-105 transition-transform">
+                      <Image className="w-4 h-4" />
+                    </div>
+                    <div>
+                      <div className="text-xs font-bold text-slate-800 dark:text-slate-200 group-hover:text-sky-700 dark:group-hover:text-sky-400">
+                        استخراج نصوص الصور (OCR)
+                      </div>
+                      <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5 leading-snug">
+                        رفع صورة وثيقة، إيصال، شهادة، أو لافتة واستخراج نصوصها فوراً
+                      </div>
+                    </div>
+                  </button>
+
+                  {/* Option 2: Summarize Book / Document / PDF */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsAttachMenuOpen(false);
+                      bookFileInputRef.current?.click();
+                    }}
+                    className="w-full p-2 rounded-xl hover:bg-emerald-50 dark:hover:bg-emerald-950/50 text-right flex items-start gap-2.5 transition-colors cursor-pointer group"
+                  >
+                    <div className="p-2 rounded-lg bg-emerald-100 dark:bg-emerald-900/50 text-emerald-700 dark:text-emerald-300 shrink-0 group-hover:scale-105 transition-transform">
+                      <BookOpen className="w-4 h-4" />
+                    </div>
+                    <div>
+                      <div className="text-xs font-bold text-slate-800 dark:text-slate-200 group-hover:text-emerald-700 dark:group-hover:text-emerald-400">
+                        تلخيص محتوى كتاب أو مستند
+                      </div>
+                      <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5 leading-snug">
+                        رفع كتاب مدرسي، مقرر، أو ملف PDF لتلخيص فصوله ومفاهيمه
+                      </div>
+                    </div>
+                  </button>
+
+                  {/* Option 3: General File Attachment */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsAttachMenuOpen(false);
+                      fileInputHiddenRef.current?.click();
+                    }}
+                    className="w-full p-2 rounded-xl hover:bg-amber-50 dark:hover:bg-amber-950/50 text-right flex items-start gap-2.5 transition-colors cursor-pointer group"
+                  >
+                    <div className="p-2 rounded-lg bg-amber-100 dark:bg-amber-900/50 text-amber-700 dark:text-amber-300 shrink-0 group-hover:scale-105 transition-transform">
+                      <Upload className="w-4 h-4" />
+                    </div>
+                    <div>
+                      <div className="text-xs font-bold text-slate-800 dark:text-slate-200 group-hover:text-amber-700 dark:group-hover:text-amber-400">
+                        إرفاق ملف عام للمناقشة
+                      </div>
+                      <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5 leading-snug">
+                        إرفاق ملفات متعددة ومحادثة المساعد الذكي حولها
+                      </div>
+                    </div>
+                  </button>
+                </div>
               )}
             </div>
 
-            {/* Bottom row: Control Actions */}
-            <div className="flex items-center justify-between gap-2 pt-0.5">
-              <div className="flex items-center gap-1.5">
-                {input.trim() && (
-                  <button
-                    type="button"
-                    onClick={() => setInput('')}
-                    className="px-2.5 py-1.5 rounded-xl bg-slate-800/80 hover:bg-rose-950/60 text-slate-300 hover:text-rose-300 text-xs transition-colors flex items-center gap-1 cursor-pointer border border-slate-700/50"
-                    title="تفريغ النص لبدء الإملاء من جديد"
-                  >
-                    <Trash2 className="w-3.5 h-3.5" />
-                    <span>مسح النص</span>
-                  </button>
-                )}
-              </div>
+            {/* Hidden Input for Direct OCR Image Upload */}
+            <input
+              ref={ocrFileInputRef}
+              type="file"
+              accept="image/*"
+              className="hidden"
+              onChange={handleOcrFileSelect}
+            />
 
-              <div className="flex items-center gap-2 shrink-0">
-                <button
-                  type="button"
-                  onClick={stopVoiceInput}
-                  className="px-3.5 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold transition-colors cursor-pointer border border-slate-700"
-                >
-                  إيقاف وحفظ في المربع
-                </button>
-                <button
-                  type="button"
-                  onClick={handleFinishVoiceAndSend}
-                  className="px-4 py-1.5 rounded-xl bg-gradient-to-r from-emerald-600 to-amber-600 hover:from-emerald-500 hover:to-amber-500 text-white text-xs font-bold shadow-lg shadow-emerald-950 transition-colors flex items-center gap-1.5 cursor-pointer"
-                >
-                  <span>إنهاء وإرسال</span>
-                  <Send className="w-3.5 h-3.5 rotate-180" />
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
+            {/* Hidden Input for Direct Book / Document Upload */}
+            <input
+              ref={bookFileInputRef}
+              type="file"
+              accept=".pdf,.doc,.docx,.txt,application/pdf"
+              className="hidden"
+              onChange={handleBookFileSelect}
+            />
 
-        <form
-          onSubmit={(e) => {
-            e.preventDefault();
-            handleSend();
-          }}
-          className="flex items-end gap-1.5 sm:gap-2 bg-slate-950 border border-slate-800 focus-within:border-amber-500/80 rounded-2xl p-1.5 shadow-inner transition-colors"
-        >
-          {/* Clear Chat Button */}
-          {messages.length > 2 && (
+            {/* Hidden Input for General Attachment */}
+            <input
+              ref={fileInputHiddenRef}
+              type="file"
+              multiple
+              accept="image/*,video/mp4,video/webm,.pdf,.doc,.docx,.txt"
+              className="hidden"
+              onChange={async (e) => {
+                const files = e.target.files;
+                if (!files || files.length === 0) return;
+                for (let i = 0; i < files.length; i++) {
+                  const media = await readFileAsAttachedMedia(files[i]);
+                  handleAddAttachment(media);
+                }
+                e.target.value = '';
+              }}
+            />
+
+            {/* Voice to Text Button */}
             <button
               type="button"
-              onClick={clearChat}
-              className="p-2 text-slate-400 hover:text-rose-400 rounded-xl hover:bg-slate-800 transition-colors shrink-0"
-              title="مسح المحادثة وبدء جلسة جديدة"
-            >
-              <Trash2 className="w-4 h-4" />
-            </button>
-          )}
-
-          {/* Voice Input Button & Dialect Tag */}
-          <div className="flex items-center shrink-0">
-            <button
-              type="button"
-              onClick={toggleVoiceInput}
-              className={`p-2 rounded-xl transition-all cursor-pointer flex items-center justify-center ${
+              onClick={isListening ? () => stopVoiceInput(false) : startVoiceInput}
+              className={`p-3 rounded-2xl transition-all shadow-2xs cursor-pointer shrink-0 min-h-[46px] min-w-[46px] flex items-center justify-center ${
                 isListening
-                  ? 'bg-gradient-to-r from-rose-600 to-amber-600 text-white shadow-lg shadow-rose-900/60 ring-2 ring-rose-400 animate-pulse'
-                  : 'text-slate-400 hover:text-amber-400 hover:bg-slate-800'
+                  ? 'bg-red-600 text-white animate-pulse'
+                  : 'bg-[#F4ECDD] dark:bg-slate-800 hover:bg-[#EBE0CD] dark:hover:bg-slate-750 text-slate-700 dark:text-slate-200 border border-[#E0D3BC] dark:border-slate-700'
               }`}
-              title={
-                isListening
-                  ? 'إيقاف الإملاء الصوتي'
-                  : `إملاء صوتي (${
-                      SPEECH_DIALECT_OPTIONS.find((d) => d.code === speechDialect)?.label || 'حسانية'
-                    })`
-              }
+              title={isListening ? 'إيقاف التسجيل الصوتي' : 'تسجيل رسالة صوتية (فهم حساني وفرنكوفوني فائق الدقة)'}
+              aria-label="تسجيل صوتي"
             >
-              {isListening ? <MicOff className="w-4 h-4 text-white" /> : <Mic className="w-4 h-4" />}
+              {isListening ? (
+                <MicOff className="w-5 h-5" />
+              ) : (
+                <Mic className="w-5 h-5 text-amber-600 dark:text-amber-400" />
+              )}
             </button>
 
-            {!isListening && (
+            {/* Text Area Input */}
+            <div className="flex-1 relative">
+              <textarea
+                ref={inputRef}
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault();
+                    handleSend();
+                  }
+                }}
+                rows={1}
+                dir="auto"
+                placeholder="اكتب بالحسانية، الفرنسية، أو العربية... أو أرفق كتباً وملفات للتحليل"
+                className="w-full resize-none rounded-2xl bg-[#FAF6EE] dark:bg-slate-950 border border-[#E2D5BE] dark:border-slate-800 px-4 py-3 text-xs sm:text-sm text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-slate-500 focus:outline-hidden focus:ring-2 focus:ring-sky-600/40 focus:border-sky-600 transition-all min-h-[46px] max-h-32"
+              />
+            </div>
+
+            {/* Send / Stop Button */}
+            {isLoading ? (
               <button
                 type="button"
-                onClick={() => {
-                  const nextDialect = speechDialect === 'ar-MR' ? 'ar-SA' : 'ar-MR';
-                  setSpeechDialect(nextDialect);
-                }}
-                className="hidden sm:inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] font-semibold text-slate-400 hover:text-amber-300 hover:bg-slate-800/80 rounded-lg transition-colors cursor-pointer"
-                title="اضغط للتبديل السريع بين الحسانية والعربية الفصحى"
+                onClick={handleStopStreaming}
+                className="p-3 rounded-2xl bg-amber-600 hover:bg-amber-500 text-white transition-all shadow-xs cursor-pointer shrink-0 min-h-[46px] min-w-[46px] flex items-center justify-center"
+                title="إيقاف التوليد"
               >
-                <span>{speechDialect === 'ar-MR' ? '🇲🇷' : '🇸🇦'}</span>
+                <Square className="w-5 h-5 fill-current" />
+              </button>
+            ) : (
+              <button
+                type="submit"
+                disabled={!input.trim() && attachments.length === 0}
+                className="p-3 rounded-2xl bg-gradient-to-r from-sky-600 to-emerald-600 hover:from-sky-500 hover:to-emerald-500 disabled:opacity-40 disabled:cursor-not-allowed text-white transition-all shadow-xs active:scale-95 cursor-pointer shrink-0 min-h-[46px] min-w-[46px] flex items-center justify-center"
+                title="إرسال"
+                aria-label="إرسال"
+              >
+                <Send className="w-5 h-5 rotate-180" />
               </button>
             )}
-          </div>
-
-          {/* Textarea */}
-          <textarea
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' && !e.shiftKey) {
-                e.preventDefault();
-                handleSend();
-              }
-            }}
-            placeholder={
-              personaMode === 'hassaniya_expert'
-                ? 'تحدث بالحسانية، اسأل عن معنى أو مثل، أو اطلب ترجمة (مثال: شحالك، أو ترجم للحسانية...)'
-                : currentLanguage.code === 'french'
-                ? 'Posez votre question en français...'
-                : 'اكتب رسالتك لـ "لحاذگ"...'
-            }
-            rows={1}
-            className="flex-1 bg-transparent border-0 focus:ring-0 text-white text-sm placeholder:text-slate-500 resize-none py-2 px-2 max-h-32 min-h-[40px] outline-none"
-            dir={currentLanguage.dir}
-          />
-
-          {/* Send Button */}
-          <button
-            type="submit"
-            disabled={!input.trim() || isLoading}
-            className={`p-2.5 rounded-xl flex items-center justify-center shrink-0 transition-all ${
-              input.trim() && !isLoading
-                ? 'bg-gradient-to-r from-emerald-600 to-amber-600 hover:from-emerald-500 hover:to-amber-500 text-white shadow-md shadow-amber-950'
-                : 'bg-slate-800 text-slate-600 cursor-not-allowed'
-            }`}
-            title="إرسال"
-          >
-            <Send className="w-4 h-4 rotate-180" />
-          </button>
-        </form>
+          </form>
+        </div>
       </div>
 
-      {/* Persistent Chat History Sidebar Drawer */}
+      {/* 5. Chat History Drawer / Sidebar */}
       <ChatHistorySidebar
         isOpen={isSidebarOpen}
         onClose={() => setIsSidebarOpen(false)}
@@ -1590,7 +1478,39 @@ export const ChatView: React.FC<ChatViewProps> = ({ currentLanguage, onSelectLan
         onDeleteSession={handleDeleteSession}
         onRenameSession={handleRenameSession}
         onClearAllSessions={handleClearAllSessions}
-        onImportSessions={handleReloadSessions}
+      />
+
+      {/* 6. Quick Portals Modal */}
+      <QuickPortalsModal
+        isOpen={isPortalsModalOpen}
+        onClose={() => setIsPortalsModalOpen(false)}
+        initialPortalId={activePortalId}
+        onSelectPrompt={(prompt) => {
+          setInput(prompt);
+          inputRef.current?.focus();
+        }}
+      />
+
+      {/* 7. Plugins & Extension Hub Modal */}
+      <PluginsModal
+        isOpen={isPluginsModalOpen}
+        onClose={() => setIsPluginsModalOpen(false)}
+        plugins={plugins}
+        onTogglePlugin={handleTogglePlugin}
+        onSelectSamplePrompt={(prompt) => {
+          setInput(prompt);
+          inputRef.current?.focus();
+        }}
+      />
+
+      {/* 8. Share Modal */}
+      <ShareModal
+        isOpen={shareModalState.isOpen}
+        onClose={() => setShareModalState((prev) => ({ ...prev, isOpen: false }))}
+        title={shareModalState.title}
+        shareText={shareModalState.shareText}
+        subtitle={shareModalState.subtitle}
+        categoryTag={shareModalState.categoryTag}
       />
     </div>
   );

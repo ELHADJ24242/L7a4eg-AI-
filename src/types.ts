@@ -27,13 +27,72 @@ export type AppTab =
   | 'image_studio'
   | 'video_studio';
 
+export type ThinkingMode = 'fast' | 'deep';
+
+export interface AttachedMedia {
+  id: string;
+  name: string;
+  type: 'image' | 'video' | 'document';
+  mimeType: string;
+  size: number;
+  previewUrl: string;
+  base64Data?: string;
+  textContent?: string;
+}
+
+export type MediaAnalysisTask = 'extract_text' | 'summarize_book' | 'general_analysis';
+
+export interface MediaAnalysisResponse {
+  success: boolean;
+  task: MediaAnalysisTask;
+  fileName: string;
+  fileType: string;
+  result: string;
+  extractedText?: string;
+  summary?: {
+    title: string;
+    keyPoints: string[];
+    actionableTakeaways: string[];
+  };
+}
+
+export type QuickPortalId = 'celebrity' | 'startups' | 'tenders' | 'curriculum';
+
+export interface PortalItem {
+  id: string;
+  portalId: QuickPortalId;
+  title: string;
+  summary: string;
+  categoryTag: string;
+  date: string;
+  badge?: string;
+  promptToAsk: string;
+}
+
+export interface PluginItem {
+  id: string;
+  titleAr: string;
+  titleFr: string;
+  descriptionAr: string;
+  category: 'business' | 'legal' | 'academic' | 'climate' | 'culture';
+  icon: string;
+  enabled: boolean;
+  samplePrompt: string;
+}
+
 export interface ChatMessage {
   id: string;
   role: 'user' | 'assistant';
   content: string;
   timestamp: string;
   confidence?: 'high' | 'limited_support' | 'demo';
-  language?: LanguageCode;
+  language?: LanguageCode | string;
+  smartSuggestions?: string[];
+  isVoiceInput?: boolean;
+  originalVoiceTranscription?: string;
+  thinkingMode?: ThinkingMode;
+  thinkingSteps?: string;
+  attachments?: AttachedMedia[];
 }
 
 export interface ChatSession {
